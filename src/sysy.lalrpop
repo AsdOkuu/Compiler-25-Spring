@@ -1,4 +1,4 @@
-use crate::ast::{CompUnit, FuncDef, FuncType, Block, Stmt};
+use crate::ast::*;
 
 grammar;
 
@@ -8,11 +8,14 @@ match {
   _
 }
 
-pub CompUnit: CompUnit = <func_def: FuncDef> => CompUnit { <> };
-
+pub Program: Program = {
+  <func: FuncDef> => {
+    Program { <> }
+  }
+}
 FuncDef: FuncDef = {
   <func_type: FuncType> <id: Ident> "(" ")" <block: Block> => {
-	FuncDef { <> }
+    FuncDef { <> }
   }
 }
 
@@ -20,7 +23,7 @@ FuncType: FuncType = "int" => FuncType::Int;
 
 Block: Block = "{" <stmt: Stmt> "}" => Block { <> };
 
-Stmt: Stmt = "return" <num: Number> ";" => Stmt { <> };
+Stmt: Stmt = "return" <num: Number> ";" => Stmt::Ret(<>);
 
 Number: i32 = <num: IntConst> => <>;
 

@@ -4,6 +4,7 @@ use std::fs::read_to_string;
 
 lalrpop_mod!(sysy);
 pub mod ast;
+pub mod dump;
 
 fn main() {
     let mut args = args();
@@ -15,7 +16,9 @@ fn main() {
 
     let input = read_to_string(input).unwrap();
 
-    let ast = sysy::CompUnitParser::new().parse(&input).unwrap();
+    let ast = sysy::ProgramParser::new().parse(&input).unwrap();
 
     println!("{:#?}", ast);
+
+    println!("{}", dump::gen_text_koopa(ast));
 }

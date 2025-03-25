@@ -1,6 +1,6 @@
 #[derive(Debug)]
-pub struct CompUnit {
-    pub func_def: FuncDef,
+pub struct Program {
+    pub func: FuncDef,
 }
 
 #[derive(Debug)]
@@ -11,17 +11,17 @@ pub struct FuncDef {
 }
 
 #[derive(Debug)]
-pub enum FuncType {
-    Int,
-}
-
-#[derive(Debug)]
 pub struct Block {
     pub stmt: Stmt,
 }
 
 #[derive(Debug)]
-pub struct Stmt {
-    pub num: i32,
+pub enum Stmt {
+    Ret(i32),
+}
+
+#[derive(Debug)]
+pub enum FuncType {
+    Int,
 }
 
