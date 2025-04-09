@@ -65,32 +65,33 @@ enum Reg {
 impl Reg {
     fn to_string(self) -> String {
         match self {
-            T0 => "t0",
-            T1 => "t1",
-            T2 => "t2",
-            T3 => "t3",
-            T4 => "t4",
-            T5 => "t5",
-            T6 => "t6",
-            A0 => "a0",
-            A1 => "a1",
-            A2 => "a2",
-            A3 => "a3",
-            A4 => "a4",
-            A5 => "a5",
-            A6 => "a6",
-            A7 => "a7",
+            Reg::T0 => "t0",
+            Reg::T1 => "t1",
+            Reg::T2 => "t2",
+            Reg::T3 => "t3",
+            Reg::T4 => "t4",
+            Reg::T5 => "t5",
+            Reg::T6 => "t6",
+            Reg::A0 => "a0",
+            Reg::A1 => "a1",
+            Reg::A2 => "a2",
+            Reg::A3 => "a3",
+            Reg::A4 => "a4",
+            Reg::A5 => "a5",
+            Reg::A6 => "a6",
+            Reg::A7 => "a7",
         }.to_string()
     }
 }
 
 type RegMap = HashSet<Reg>;
 
+/* Find next unused register */
 fn next_reg(regs: &mut RegMap) -> Option<Reg> {
     for reg in Reg::iter() {
         let mut flag = true;
         for val in regs.iter() {
-            if reg == val {
+            if reg == *val {
                 flag = false;
                 break;
             }
@@ -103,18 +104,23 @@ fn next_reg(regs: &mut RegMap) -> Option<Reg> {
     None
 }
 
-
-/* Parse Binary into risc32 text */
+/* Parse Binary into risc32 text (instruction text, final register) */
 fn parse_binary(bin: &values::Binary, func_data: &FunctionData, regs: &mut RegMap) -> (String, String) {
     let mut final_str = String::new();
-    let match_deeper = |value| {
+    // Forwarding recursive return value
+    let mut match_deeper = |value| {
         match func_data.dfg().value(value).kind() {
-            ValueKind::Integer(int) => parse_integer(int),
-            ValueKind::Binary(bin) => {
-                let (s, v) = parse_binary(bin, func_data, regs);
-                final_str += &s;
-                v
+            ValueKind::Integer(int) => {
+                let reg = next_reg(regs).unwrap().to_string();
+                final_str += &("li ".to_string() + &reg + ", " + &parse_integer(int) + "\n");
+                reg
             }
+            ValueKind::Binary(bin) => {
+                let (s, reg) = parse_binary(bin, func_data, regs);
+                final_str += &s;
+                reg
+            },
+            _ => unreachable!(),
         }
     };
     let lhs = match_deeper(bin.lhs());
@@ -150,6 +156,9 @@ fn parse_binary(bin: &values::Binary, func_data: &FunctionData, regs: &mut RegMa
         BinaryOp::Add => {
             final_str += &("add ".to_string() + &new_reg + ", " + &lhs + ", " + &rhs + "\n");
         },
+        BinaryOp::Sub => {
+            final_str += &("sub ".to_string() + &new_reg + ", " + &lhs + ", " + &rhs + "\n");
+        },
         BinaryOp::Mul => {
             final_str += &("mul ".to_string() + &new_reg + ", " + &lhs + ", " + &rhs + "\n");
         },
@@ -181,10 +190,12 @@ fn parse_binary(bin: &values::Binary, func_data: &FunctionData, regs: &mut RegMa
     (final_str, new_reg)
 }
 
+/* Parse Integer into risc32 text */
 fn parse_integer(int: &values::Integer) -> String {
     int.value().to_string()
 }
 
+/* Parse Return into risc32 text */
 fn parse_return(ret: &values::Return, func_data: &FunctionData, regs: &mut RegMap) -> String {
     match ret.value() {
         Some(value) => match func_data.dfg().value(value).kind() {
@@ -193,6 +204,7 @@ fn parse_return(ret: &values::Return, func_data: &FunctionData, regs: &mut RegMa
                 let (insts, reg) = parse_binary(bin, func_data, regs);
                 insts + "li a0, " + &reg + "\nret\n"
             },
+            _ => unreachable!(),
         },
         None => "ret\n".to_string()
     }
@@ -211,13 +223,14 @@ pub fn gen_riscv32(ast: ast::Program) -> String {
             // Init for bb
             for &inst in node.insts().keys() {
                 let value_data = func_data.dfg().value(inst);
+                // Only visit return
                 if let ValueKind::Return(ret) = value_data.kind() {
+                    // Actually map shall be defined over the func
                     let mut map = RegMap::new();
                     text += &parse_return(ret, func_data, &mut map);
                 }
             }
         }
     }
-
     text
 }
