@@ -1,37 +1,129 @@
+use koopa::ir::BinaryOp;
 use crate::ast::*;
 
 grammar;
 
 match {
-  r"\s*" => {},
-  r"//[^\n\r]*[\n\r]*" => {},
-  r"/\*[^*]*\*+(?:[^/*][^*]*\*+)*/" => {},
-  _
+    r"\s*" => {},
+    r"//[^\n\r]*[\n\r]*" => {},
+    r"/\*[^*]*\*+(?:[^/*][^*]*\*+)*/" => {},
+    _
 }
 
 pub Program: Program = {
-  <func: FuncDef> => {
-    Program { <> }
-  }
+    <func: FuncDef> => {
+        Program { <> }
+    }
 }
 FuncDef: FuncDef = {
-  <func_type: FuncType> <id: Ident> "(" ")" <block: Block> => {
-    FuncDef { <> }
-  }
+    <func_type: FuncType> <id: Ident> "(" ")" <block: Block> => {
+        FuncDef { <> }
+    }
 }
 
 FuncType: FuncType = "int" => FuncType::Int;
 
 Block: Block = "{" <stmt: Stmt> "}" => Block { <> };
 
-Stmt: Stmt = "return" <num: Number> ";" => Stmt::Ret(<>);
+Stmt: Stmt = "return" <exp: Exp> ";" => Stmt::Ret(<>);
+
+Exp: Exp = <lor_exp: LOrExp> => <>;
+
+PrimaryExp: Exp = {
+    "(" <exp: Exp> ")" => <>,
+    <num: Number> => Exp::single(<>),
+}
 
 Number: i32 = <num: IntConst> => <>;
+
+UnaryExp: Exp = {
+    <primary_exp: PrimaryExp> => <>,
+    <unary_op: UnaryOp> <unary_exp: UnaryExp> => Exp::binary(Exp::single(0), <>),
+}
+
+UnaryOp: BinaryOp = {
+    "+" => BinaryOp::Add,
+    "-" => BinaryOp::Sub,
+    "!" => BinaryOp::Eq,
+}
+
+MulExp: Exp = {
+    <unary_exp: UnaryExp> => <>,
+    <mul_exp: MulExp> <mul_op: MulOp> <unary_exp: UnaryExp> => Exp::binary(<>),
+}
+
+MulOp: BinaryOp = {
+    "*" => BinaryOp::Mul,
+    "/" => BinaryOp::Div,
+    "%" => BinaryOp::Mod,
+}
+
+AddExp: Exp = {
+    <mul_exp: MulExp> => <>,
+    <add_exp: AddExp> <add_op: AddOp> <mul_exp: MulExp> => Exp::binary(<>),
+}
+
+AddOp: BinaryOp = {
+    "+" => BinaryOp::Add,
+    "-" => BinaryOp::Sub,
+}
+
+RelExp: Exp = {
+    <add_exp: AddExp> => <>,
+    <rel_exp: RelExp> <rel_op: RelOp> <add_exp: AddExp> => Exp::binary(<>),
+}
+
+RelOp: BinaryOp = {
+    "<" => BinaryOp::Lt,
+    ">" => BinaryOp::Gt,
+    "<=" => BinaryOp::Le,
+    ">=" => BinaryOp::Ge,
+}
+
+EqExp: Exp = {
+    <rel_exp: RelExp> => <>,
+    <eq_exp: EqExp> <eq_op: EqOp> <rel_exp: RelExp> => Exp::binary(<>),
+}
+
+EqOp: BinaryOp = {
+    "==" => BinaryOp::Eq,
+    "!=" => BinaryOp::NotEq,
+}
+
+LAndExp: Exp = {
+    <eq_exp: EqExp> => <>,
+    <land_exp: LAndExp> "&&" <eq_exp: EqExp> => {
+        let e0 = {
+            let e = Exp::binary(Exp::single(0), BinaryOp::Eq, land_exp);
+            Exp::binary(Exp::single(0), BinaryOp::Eq, e)
+        };
+        let e1 = {
+            let e = Exp::binary(Exp::single(0), BinaryOp::Eq, eq_exp);
+            Exp::binary(Exp::single(0), BinaryOp::Eq, e)
+        };
+        Exp::binary(e0, BinaryOp::And, e1)
+    }
+}
+
+LOrExp: Exp = {
+    <land_exp: LAndExp> => <>,
+    <lor_exp: LOrExp> "||" <land_exp: LAndExp> => {
+        let e0 = {
+            let e = Exp::binary(Exp::single(0), BinaryOp::Eq, lor_exp);
+            Exp::binary(Exp::single(0), BinaryOp::Eq, e)
+        };
+        let e1 = {
+            let e = Exp::binary(Exp::single(0), BinaryOp::Eq, land_exp);
+            Exp::binary(Exp::single(0), BinaryOp::Eq, e)
+        };
+        Exp::binary(e0, BinaryOp::Or, e1)
+    }
+}
 
 Ident: String = r"[_a-zA-Z][_a-zA-Z0-9]*" => <>.to_string();
 
 IntConst: i32 = {
-  r"[1-9][0-9]*" => i32::from_str_radix(<>, 10).unwrap(),
-  r"0[0-7]*" => i32::from_str_radix(<>, 8).unwrap(),
-  r"0[xX][0-9a-fA-F]+" => i32::from_str_radix(&<>[2..], 16).unwrap(),
+    r"[1-9][0-9]*" => i32::from_str_radix(<>, 10).unwrap(),
+    r"0[0-7]*" => i32::from_str_radix(<>, 8).unwrap(),
+    r"0[xX][0-9a-fA-F]+" => i32::from_str_radix(&<>[2..], 16).unwrap(),
 }
