@@ -105,27 +105,46 @@ fn next_reg(regs: &mut RegMap) -> Option<Reg> {
 }
 
 /* Parse Binary into risc32 text (instruction text, final register) */
-fn parse_binary(bin: &values::Binary, func_data: &FunctionData, regs: &mut RegMap) -> (String, String) {
+fn parse_binary(bin: &values::Binary, func_data: &FunctionData, regs: &mut RegMap) -> (String, Reg) {
     let mut final_str = String::new();
     // Forwarding recursive return value
     let mut match_deeper = |value| {
         match func_data.dfg().value(value).kind() {
             ValueKind::Integer(int) => {
-                let reg = next_reg(regs).unwrap().to_string();
-                final_str += &("li ".to_string() + &reg + ", " + &parse_integer(int) + "\n");
-                reg
+                // Check if int = 0
+                match int.value() {
+                    0 => Ok("x0".to_string()),
+                    _ => {
+                        let reg = next_reg(regs).unwrap();
+                        final_str += &("li ".to_string() + &reg.to_string() + ", " + &parse_integer(int) + "\n");
+                        Err(reg)
+                    }
+                }
             }
             ValueKind::Binary(bin) => {
                 let (s, reg) = parse_binary(bin, func_data, regs);
                 final_str += &s;
-                reg
+                Err(reg)
             },
             _ => unreachable!(),
         }
     };
-    let lhs = match_deeper(bin.lhs());
-    let rhs = match_deeper(bin.rhs());
-    let new_reg = next_reg(regs).unwrap().to_string();
+    let lhs_o = match_deeper(bin.lhs());
+    let rhs_o = match_deeper(bin.rhs());
+    // Reuse registers
+    let mut match_res = |res: Result<String, Reg>| {
+        match res {
+            Ok(s) => s,
+            Err(r) => {
+                regs.remove(&r);
+                r.to_string()
+            }
+        }
+    };
+    let lhs = match_res(lhs_o);
+    let rhs = match_res(rhs_o);
+    let new_reg_name = next_reg(regs).unwrap();
+    let new_reg = new_reg_name.to_string();
     match bin.op() {
         BinaryOp::NotEq => {
             final_str += &("sub ".to_string() + &new_reg + ", " + &lhs + ", " + &rhs + "\n");
@@ -187,7 +206,7 @@ fn parse_binary(bin: &values::Binary, func_data: &FunctionData, regs: &mut RegMa
             final_str += &("sra ".to_string() + &new_reg + ", " + &lhs + ", " + &rhs + "\n");
         },
     };
-    (final_str, new_reg)
+    (final_str, new_reg_name)
 }
 
 /* Parse Integer into risc32 text */
@@ -202,7 +221,7 @@ fn parse_return(ret: &values::Return, func_data: &FunctionData, regs: &mut RegMa
             ValueKind::Integer(int) => "li a0, ".to_string() + &parse_integer(int) + "\nret\n",
             ValueKind::Binary(bin) => {
                 let (insts, reg) = parse_binary(bin, func_data, regs);
-                insts + "li a0, " + &reg + "\nret\n"
+                insts + "mv a0, " + &reg.to_string() + "\nret\n"
             },
             _ => unreachable!(),
         },
