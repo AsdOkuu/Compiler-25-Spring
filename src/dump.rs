@@ -19,7 +19,8 @@ impl ast::Exp {
             },
             ast::ExpCore::Single(i) => {
                 data.dfg_mut().new_value().integer(i)
-            }
+            },
+            ast::ExpCore::Ident(_id) => unreachable!(),
         }
     }
 }
@@ -35,8 +36,12 @@ impl ast::Program {
         let main_data = program.func_mut(main);
         let entry = main_data.dfg_mut().new_bb().basic_block(Some("%entry".into()));
         main_data.layout_mut().bbs_mut().push_key_back(entry).unwrap();
-        let ret_exp = match self.func.block.stmt {
-            ast::Stmt::Ret(exp) => exp,
+        let ret_stmt = match self.func.block.block_item_list.into_iter().next().unwrap() {
+            ast::BlockItem::Stmt(stmt) => stmt,
+            ast::BlockItem::Decl(_) => unreachable!(),
+        };
+        let ret_exp = match ret_stmt {
+            ast::Stmt::Ret(ret) => ret,
         };
         let ret_val = ret_exp.dump(entry, main_data);
         let ret = main_data.dfg_mut().new_value().ret(Some(ret_val));

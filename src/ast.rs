@@ -14,7 +14,13 @@ pub struct FuncDef {
 
 #[derive(Debug)]
 pub struct Block {
-    pub stmt: Stmt,
+    pub block_item_list: Vec<BlockItem>,
+}
+
+#[derive(Debug)]
+pub enum BlockItem {
+    Decl(Decl),
+    Stmt(Stmt),
 }
 
 #[derive(Debug)]
@@ -28,6 +34,28 @@ pub enum FuncType {
 }
 
 #[derive(Debug)]
+pub enum Decl {
+    Const(ConstDecl),
+}
+
+#[derive(Debug)]
+pub struct ConstDecl {
+    pub btype: BType,
+    pub const_def_list: Vec<ConstDef>,
+}
+
+#[derive(Debug)]
+pub enum BType {
+    Int,
+}
+
+#[derive(Debug)]
+pub struct ConstDef {
+    pub id: String,
+    pub const_init_val: Exp,
+}
+
+#[derive(Debug)]
 pub struct Exp {
     pub core: Box<ExpCore>,
 }
@@ -36,6 +64,7 @@ pub struct Exp {
 pub enum ExpCore {
     Binary(Exp, BinaryOp, Exp),
     Single(i32),
+    Ident(String),
 }
 
 impl Exp {
@@ -45,6 +74,10 @@ impl Exp {
 
     pub fn single(num: i32) -> Exp {
         Exp { core: Box::new(ExpCore::Single(num)), }
+    }
+
+    pub fn ident(id: String) -> Exp {
+        Exp { core: Box::new(ExpCore::Ident(id)), }
     }
 }
 

@@ -23,16 +23,65 @@ FuncDef: FuncDef = {
 
 FuncType: FuncType = "int" => FuncType::Int;
 
-Block: Block = "{" <stmt: Stmt> "}" => Block { <> };
+Block: Block = "{" <block_item_list: BlockItemList> "}" => Block { <> };
+
+BlockItemList: Vec<BlockItem> = {
+    <block_item: BlockItem> => vec![<>],
+    <block_item_list: BlockItemList> <block_item: BlockItem> => {
+        let mut list = block_item_list;
+        list.push(block_item);
+        list
+    }
+}
+
+BlockItem: BlockItem = {
+    <decl: Decl> => BlockItem::Decl(<>),
+    <stmt: Stmt> => BlockItem::Stmt(<>),
+}
 
 Stmt: Stmt = "return" <exp: Exp> ";" => Stmt::Ret(<>);
+
+Decl: Decl = {
+    <const_decl: ConstDecl> => Decl::Const(<>),
+    // <var_decl: VarDecl> => Decl::Var(<>),
+}
+
+ConstDecl: ConstDecl = {
+    "const" <btype: BType> <const_def_list: ConstDefList> ";" => {
+        ConstDecl { <> }
+    }
+}
+
+ConstDefList: Vec<ConstDef> = {
+    <const_def : ConstDef> => vec![<>],
+    <const_def_list: ConstDefList> "," <const_def: ConstDef> => {
+        let mut list = const_def_list;
+        list.push(const_def);
+        list
+    }
+}
+
+BType: BType = "int" => BType::Int;
+
+ConstDef: ConstDef = {
+    <id: Ident> "=" <const_init_val: Exp> ";" => {
+        ConstDef { <> }
+    }
+}
+
+ConstInitVal: Exp = <const_exp: ConstExp> => <>;
+
+ConstExp: Exp = <exp: Exp> => <>;
 
 Exp: Exp = <lor_exp: LOrExp> => <>;
 
 PrimaryExp: Exp = {
     "(" <exp: Exp> ")" => <>,
+    <lval: LVal> => Exp::ident(<>),
     <num: Number> => Exp::single(<>),
 }
+
+LVal: String = <id: Ident> => <>;
 
 Number: i32 = <num: IntConst> => <>;
 
