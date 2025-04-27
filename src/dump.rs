@@ -244,6 +244,8 @@ pub fn gen_riscv32(ast: ast::Program) -> String {
                         text += &("li t0, ".to_string() + &sp_delta.to_string() + "\n");
                         text += "add sp, sp, t0\n";
                         text += "ret\n";
+                        // exit function
+                        break;
                     },
                     ValueKind::Alloc(_) => {
                         // do nothing
@@ -256,7 +258,7 @@ pub fn gen_riscv32(ast: ast::Program) -> String {
                                 text += &("li t0, ".to_string() + &int.value().to_string() + "\n");
                             },
                             _ => {
-                                let offset = get_offset(pos[&store.value()], &mut text);
+                                let offset = get_offset(pos[&value], &mut text);
                                 text += &("lw t0, ".to_string() + &offset + "\n");
                             }
                         }
