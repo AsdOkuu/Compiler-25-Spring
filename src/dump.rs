@@ -94,6 +94,8 @@ impl ast::Program {
                             let ret_val = ret.dump(entry, main_data, &symbol_table);
                             let ret = main_data.dfg_mut().new_value().ret(Some(ret_val));
                             main_data.layout_mut().bb_mut(entry).insts_mut().push_key_back(ret).unwrap();
+                            // Exit
+                            break;
                         },
                     }
                 },
@@ -244,8 +246,6 @@ pub fn gen_riscv32(ast: ast::Program) -> String {
                         text += &("li t0, ".to_string() + &sp_delta.to_string() + "\n");
                         text += "add sp, sp, t0\n";
                         text += "ret\n";
-                        // exit function
-                        break;
                     },
                     ValueKind::Alloc(_) => {
                         // do nothing
