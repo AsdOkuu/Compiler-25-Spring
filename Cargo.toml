@@ -8,8 +8,6 @@ edition = "2021"
 [dependencies]
 koopa = "0.0.8"
 lalrpop-util = { version = "0.19.7", features = ["lexer"] }
-strum = "0.27"
-strum_macros = "0.27"
 
 [build-dependencies]
 lalrpop = "0.19.7"

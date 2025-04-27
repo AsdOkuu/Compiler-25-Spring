@@ -39,18 +39,49 @@ BlockItem: BlockItem = {
     <stmt: Stmt> => BlockItem::Stmt(<>),
 }
 
-Stmt: Stmt = "return" <exp: Exp> ";" => Stmt::Ret(<>);
+Stmt: Stmt = {
+    <lval: LVal> "=" <exp: Exp> ";" => Stmt::Assign(<>),
+    "return" <exp: Exp> ";" => Stmt::Ret(<>),
+}
 
 Decl: Decl = {
     <const_decl: ConstDecl> => Decl::Const(<>),
-    // <var_decl: VarDecl> => Decl::Var(<>),
+    <var_decl: VarDecl> => Decl::Var(<>),
 }
+
+VarDecl: VarDecl = {
+    <btype: BType> <var_def_list: VarDefList> ";" => {
+        VarDecl { <> }
+    }
+}
+
+VarDefList: Vec<VarDef> = {
+    <var_def: VarDef> => vec![<>],
+    <var_def_list: VarDefList> "," <var_def: VarDef> => {
+        let mut list = var_def_list;
+        list.push(var_def);
+        list
+    }
+}
+
+VarDef: VarDef = {
+    <id: Ident> "=" <init_val: InitVal> => {
+        VarDef { id: id, init_val: Some(init_val) }
+    },
+    <id: Ident> => {
+        VarDef { id: id, init_val: None }
+    }
+}
+
+InitVal: Exp = <exp: Exp> => <>;
 
 ConstDecl: ConstDecl = {
     "const" <btype: BType> <const_def_list: ConstDefList> ";" => {
         ConstDecl { <> }
     }
 }
+
+BType: BType = "int" => BType::Int;
 
 ConstDefList: Vec<ConstDef> = {
     <const_def : ConstDef> => vec![<>],
@@ -61,10 +92,8 @@ ConstDefList: Vec<ConstDef> = {
     }
 }
 
-BType: BType = "int" => BType::Int;
-
 ConstDef: ConstDef = {
-    <id: Ident> "=" <const_init_val: Exp> ";" => {
+    <id: Ident> "=" <const_init_val: Exp> => {
         ConstDef { <> }
     }
 }

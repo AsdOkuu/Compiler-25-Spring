@@ -25,6 +25,7 @@ pub enum BlockItem {
 
 #[derive(Debug)]
 pub enum Stmt {
+    Assign(String, Exp),
     Ret(Exp),
 }
 
@@ -36,6 +37,19 @@ pub enum FuncType {
 #[derive(Debug)]
 pub enum Decl {
     Const(ConstDecl),
+    Var(VarDecl),
+}
+
+#[derive(Debug)]
+pub struct VarDecl {
+    pub btype: BType,
+    pub var_def_list: Vec<VarDef>,
+}
+
+#[derive(Debug)]
+pub struct VarDef {
+    pub id: String,
+    pub init_val: Option<Exp>,
 }
 
 #[derive(Debug)]
