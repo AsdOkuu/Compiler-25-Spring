@@ -12,6 +12,7 @@ lalrpop_mod!(sysy);
 /* Module (Extern) */
 pub mod ast;
 pub mod dump;
+pub mod generate;
 
 /* Main */
 fn main() {
@@ -43,7 +44,7 @@ fn main() {
         },
         "-riscv" => {
             // Riscv32 - output assemble code
-            dump::gen_riscv32(ast)
+            generate::gen_riscv32(ast)
         },
         _ => unreachable!(),
     };
