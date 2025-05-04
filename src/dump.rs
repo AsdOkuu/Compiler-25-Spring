@@ -1,17 +1,39 @@
 /* Uses */
 use std::collections::HashMap;
-use crate::ast;
+use std::rc::Rc;
 use koopa::ir::*;
 use koopa::ir::builder::*;
 use koopa::back::KoopaGenerator;
+use crate::ast;
 
 enum DefType {
     Const,
     Var,
 }
 
+struct SymbolTable {
+    table: HashMap<String, (Value, DefType)>,
+    old: Option<Rc<SymbolTable>>,
+}
+
+impl SymbolTable {
+    fn new() -> SymbolTable{
+        SymbolTable {table: HashMap::new(), old: None}
+    }
+
+    fn find(&self, s: &String) -> Option<&(Value, DefType)> {
+        match self.table.get(s) {
+            Some(tup) => Some(tup),
+            None => match &self.old {
+                Some(old_table) => old_table.find(s),
+                None => None,
+            }
+        }
+    }
+}
+
 impl ast::Exp {
-    fn dump(self, bb: BasicBlock, data: &mut FunctionData, symbol_table: &HashMap<String, (Value, DefType)>) -> Value {
+    fn dump(self, bb: BasicBlock, data: &mut FunctionData, symbol_table: &Rc<SymbolTable>) -> Value {
         match *self.core {
             ast::ExpCore::Binary(e0, op, e1) => {
                 let v0 = e0.dump(bb, data, symbol_table);
@@ -24,7 +46,7 @@ impl ast::Exp {
                 data.dfg_mut().new_value().integer(i)
             },
             ast::ExpCore::Ident(id) => {
-                let (v, t) = symbol_table.get(&id).unwrap();
+                let (v, t) = symbol_table.find(&id).unwrap();
                 match t {
                     DefType::Const => {
                         v.clone()
@@ -40,6 +62,69 @@ impl ast::Exp {
     }
 }
 
+impl ast::Block {
+    fn dump(self, bb: BasicBlock, func_data: &mut FunctionData, mut symbol_table: Rc<SymbolTable>) -> Option<()> {
+        for item in self.block_item_list {
+            match item {
+                ast::BlockItem::Decl(decl) => {
+                    match decl {
+                        ast::Decl::Const(const_decl) => {
+                            for const_def in const_decl.const_def_list {
+                                let const_val = const_def.const_init_val.dump(bb, func_data, &symbol_table);
+                                let const_name = const_def.id;
+                                // Add to symbol table
+                                Rc::get_mut(&mut symbol_table).unwrap().table.insert(const_name, (const_val, DefType::Const));
+                            }
+                        }
+                        ast::Decl::Var(var_decl) => {
+                            for var_def in var_decl.var_def_list {
+                                let var_val = func_data.dfg_mut().new_value().alloc(Type::get_i32());
+                                let var_name = var_def.id;
+                                func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(var_val).unwrap();
+                                // Add to symbol table
+                                Rc::get_mut(&mut symbol_table).unwrap().table.insert(var_name, (var_val, DefType::Var));
+                                if let Some(init_val) = var_def.init_val {
+                                    let init_val = init_val.dump(bb, func_data, &symbol_table);
+                                    let store = func_data.dfg_mut().new_value().store(init_val, var_val);
+                                    func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(store).unwrap();
+                                }
+                            }
+                        }
+                    }
+                }
+                ast::BlockItem::Stmt(stmt) => {
+                    match stmt {
+                        ast::Stmt::Assign(lval, exp) => {
+                            let val = symbol_table.find(&lval).unwrap().0.clone();
+                            let exp_val = exp.dump(bb, func_data, &symbol_table);
+                            let store = func_data.dfg_mut().new_value().store(exp_val, val);
+                            func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(store).unwrap();
+                        }
+                        ast::Stmt::Block(block) => {
+                            let mut new_table = Rc::new(SymbolTable::new());
+                            Rc::get_mut(&mut new_table).unwrap().old = Some(Rc::clone(&symbol_table));
+                            if let None = block.dump(bb, func_data, new_table) {
+                                return None;
+                            }
+                        }
+                        ast::Stmt::Ret(ret) => {
+                            let ret_val = ret.dump(bb, func_data, &symbol_table);
+                            let ret = func_data.dfg_mut().new_value().ret(Some(ret_val));
+                            func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(ret).unwrap();
+                            // Exit
+                            return None;
+                        }
+                        _ => {
+                            //do nothing
+                        }
+                    }
+                }
+            }
+        }
+        Some(())
+    }
+}
+
 impl ast::Program {
     /* Dump prog into koopa */
     pub fn dump(self) -> Program {
@@ -52,55 +137,8 @@ impl ast::Program {
         let entry = main_data.dfg_mut().new_bb().basic_block(Some("%entry".into()));
         main_data.layout_mut().bbs_mut().push_key_back(entry).unwrap();
 
-        // Maintain a symbol table (key, value)
-        let mut symbol_table = HashMap::new();
-        for item in self.func.block.block_item_list {
-            match item {
-                ast::BlockItem::Decl(decl) => {
-                    match decl {
-                        ast::Decl::Const(const_decl) => {
-                            for const_def in const_decl.const_def_list {
-                                let const_val = const_def.const_init_val.dump(entry, main_data, &symbol_table);
-                                let const_name = const_def.id;
-                                // Add to symbol table
-                                symbol_table.insert(const_name, (const_val, DefType::Const));
-                            }
-                        },
-                        ast::Decl::Var(var_decl) => {
-                            for var_def in var_decl.var_def_list {
-                                let var_val = main_data.dfg_mut().new_value().alloc(Type::get_i32());
-                                let var_name = var_def.id;
-                                main_data.layout_mut().bb_mut(entry).insts_mut().push_key_back(var_val).unwrap();
-                                // Add to symbol table
-                                symbol_table.insert(var_name, (var_val, DefType::Var));
-                                if let Some(init_val) = var_def.init_val {
-                                    let init_val = init_val.dump(entry, main_data, &symbol_table);
-                                    let store = main_data.dfg_mut().new_value().store(init_val, var_val);
-                                    main_data.layout_mut().bb_mut(entry).insts_mut().push_key_back(store).unwrap();
-                                }
-                            }
-                        },
-                    }
-                },
-                ast::BlockItem::Stmt(stmt) => {
-                    match stmt {
-                        ast::Stmt::Assign(lval, exp) => {
-                            let val = symbol_table[&lval].0.clone();
-                            let exp_val = exp.dump(entry, main_data, &symbol_table);
-                            let store = main_data.dfg_mut().new_value().store(exp_val, val);
-                            main_data.layout_mut().bb_mut(entry).insts_mut().push_key_back(store).unwrap();
-                        },
-                        ast::Stmt::Ret(ret) => {
-                            let ret_val = ret.dump(entry, main_data, &symbol_table);
-                            let ret = main_data.dfg_mut().new_value().ret(Some(ret_val));
-                            main_data.layout_mut().bb_mut(entry).insts_mut().push_key_back(ret).unwrap();
-                            // Exit
-                            break;
-                        },
-                    }
-                },
-            }
-        }
+        let symbol_table = Rc::new(SymbolTable::new());
+        self.func.block.dump(entry, main_data, symbol_table);
 
         program
     }

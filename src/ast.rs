@@ -26,7 +26,10 @@ pub enum BlockItem {
 #[derive(Debug)]
 pub enum Stmt {
     Assign(String, Exp),
+    Exp(Exp),
+    Block(Block),
     Ret(Exp),
+    Blank,
 }
 
 #[derive(Debug)]

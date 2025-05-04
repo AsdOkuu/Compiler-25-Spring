@@ -41,7 +41,10 @@ BlockItem: BlockItem = {
 
 Stmt: Stmt = {
     <lval: LVal> "=" <exp: Exp> ";" => Stmt::Assign(<>),
+    <exp: Exp> ";" => Stmt::Exp(<>),
+    <block: Block> => Stmt::Block(<>),
     "return" <exp: Exp> ";" => Stmt::Ret(<>),
+    ";" => Stmt::Blank,
 }
 
 Decl: Decl = {
