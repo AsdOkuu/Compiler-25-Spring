@@ -26,7 +26,7 @@ FuncType: FuncType = "int" => FuncType::Int;
 Block: Block = "{" <block_item_list: BlockItemList> "}" => Block { <> };
 
 BlockItemList: Vec<BlockItem> = {
-    <block_item: BlockItem> => vec![<>],
+    => vec![],
     <block_item_list: BlockItemList> <block_item: BlockItem> => {
         let mut list = block_item_list;
         list.push(block_item);
@@ -43,7 +43,8 @@ Stmt: Stmt = {
     <lval: LVal> "=" <exp: Exp> ";" => Stmt::Assign(<>),
     <exp: Exp> ";" => Stmt::Exp(<>),
     <block: Block> => Stmt::Block(<>),
-    "return" <exp: Exp> ";" => Stmt::Ret(<>),
+    "return" <exp: Exp> ";" => Stmt::Ret(Some(<>)),
+    "return" ";" => Stmt::Ret(None),
     ";" => Stmt::Blank,
 }
 

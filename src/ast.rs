@@ -28,7 +28,7 @@ pub enum Stmt {
     Assign(String, Exp),
     Exp(Exp),
     Block(Block),
-    Ret(Exp),
+    Ret(Option<Exp>),
     Blank,
 }
 

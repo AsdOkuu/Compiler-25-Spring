@@ -108,7 +108,10 @@ impl ast::Block {
                             }
                         }
                         ast::Stmt::Ret(ret) => {
-                            let ret_val = ret.dump(bb, func_data, &symbol_table);
+                            let ret_val = match ret {
+                                Some(exp) => exp.dump(bb, func_data, &symbol_table),
+                                None => func_data.dfg_mut().new_value().integer(0),
+                            };
                             let ret = func_data.dfg_mut().new_value().ret(Some(ret_val));
                             func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(ret).unwrap();
                             // Exit
