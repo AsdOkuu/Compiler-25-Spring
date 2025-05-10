@@ -33,11 +33,11 @@ impl SymbolTable {
 }
 
 impl ast::Exp {
-    fn dump(self, bb: BasicBlock, data: &mut FunctionData, symbol_table: &Rc<SymbolTable>) -> Value {
+    fn dump(self, bb: BasicBlock, data: &mut FunctionData, symbol_table: Rc<SymbolTable>) -> Value {
         match *self.core {
             ast::ExpCore::Binary(e0, op, e1) => {
-                let v0 = e0.dump(bb, data, symbol_table);
-                let v1 = e1.dump(bb, data, symbol_table);
+                let v0 = e0.dump(bb, data, Rc::clone(&symbol_table));
+                let v1 = e1.dump(bb, data, Rc::clone(&symbol_table));
                 let v = data.dfg_mut().new_value().binary(op, v0, v1);
                 data.layout_mut().bb_mut(bb).insts_mut().push_key_back(v).unwrap();
                 v
@@ -62,15 +62,87 @@ impl ast::Exp {
     }
 }
 
+impl ast::Stmt {
+    fn dump(self, mut bb: BasicBlock, func_data: &mut FunctionData, symbol_table: Rc<SymbolTable>) -> BasicBlock {
+        match self {
+            ast::Stmt::Assign(lval, exp) => {
+                let val = symbol_table.find(&lval).unwrap().0.clone();
+                let exp_val = exp.dump(bb, func_data, Rc::clone(&symbol_table));
+                let store = func_data.dfg_mut().new_value().store(exp_val, val);
+                func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(store).unwrap();
+            }
+            ast::Stmt::Block(block) => {
+                let mut new_table = Rc::new(SymbolTable::new());
+                Rc::get_mut(&mut new_table).unwrap().old = Some(Rc::clone(&symbol_table));
+                bb = block.dump(bb, func_data, new_table);
+            }
+            ast::Stmt::Ret(ret) => {
+                let ret_val = match ret {
+                    Some(exp) => exp.dump(bb, func_data, Rc::clone(&symbol_table)),
+                    None => func_data.dfg_mut().new_value().integer(0),
+                };
+                let ret = func_data.dfg_mut().new_value().ret(Some(ret_val));
+                func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(ret).unwrap();
+                // New a bb
+                bb = func_data.dfg_mut().new_bb().basic_block(None);
+                func_data.layout_mut().bbs_mut().push_key_back(bb).unwrap();
+            }
+            ast::Stmt::If(if_stmt) => {
+                let cond = if_stmt.exp.dump(bb, func_data, Rc::clone(&symbol_table));
+                // New then bb
+                let then_bb = func_data.dfg_mut().new_bb().basic_block(None);
+                func_data.layout_mut().bbs_mut().push_key_back(then_bb).unwrap();
+                let then_last_bb = if_stmt.then_stmt.dump(then_bb, func_data, Rc::clone(&symbol_table));
+                // New end bb
+                let end_bb = func_data.dfg_mut().new_bb().basic_block(None);
+                func_data.layout_mut().bbs_mut().push_key_back(end_bb).unwrap();
+
+                
+                match if_stmt.else_stmt {
+                    Some(else_stmt) => {
+                        // New else bb
+                        let else_bb = func_data.dfg_mut().new_bb().basic_block(None);
+                        func_data.layout_mut().bbs_mut().push_key_back(else_bb).unwrap();
+                        let else_last_bb = else_stmt.dump(else_bb, func_data, Rc::clone(&symbol_table));
+                        
+                        // bb -> then_bb | else_bb
+                        let br_then = func_data.dfg_mut().new_value().branch(cond, then_bb, else_bb);
+                        func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(br_then).unwrap();
+
+                        // else_last_bb -> end_bb
+                        let jump_end = func_data.dfg_mut().new_value().jump(end_bb);
+                        func_data.layout_mut().bb_mut(else_last_bb).insts_mut().push_key_back(jump_end).unwrap();
+                    },
+                    None => {
+                        // bb -> then_bb | end_bb
+                        let br_then = func_data.dfg_mut().new_value().branch(cond, then_bb, end_bb);
+                        func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(br_then).unwrap();
+                    }
+                }
+                // then_last_bb -> end_bb
+                let jump_end = func_data.dfg_mut().new_value().jump(end_bb);
+                func_data.layout_mut().bb_mut(then_last_bb).insts_mut().push_key_back(jump_end).unwrap();
+
+                bb = end_bb;
+            }
+            _ => {
+                //do nothing
+            }
+        }
+        bb
+    }
+}
+
 impl ast::Block {
-    fn dump(self, bb: BasicBlock, func_data: &mut FunctionData, mut symbol_table: Rc<SymbolTable>) -> Option<()> {
+    fn dump(self, mut bb: BasicBlock, func_data: &mut FunctionData, mut symbol_table: Rc<SymbolTable>) -> BasicBlock {
+
         for item in self.block_item_list {
             match item {
                 ast::BlockItem::Decl(decl) => {
                     match decl {
                         ast::Decl::Const(const_decl) => {
                             for const_def in const_decl.const_def_list {
-                                let const_val = const_def.const_init_val.dump(bb, func_data, &symbol_table);
+                                let const_val = const_def.const_init_val.dump(bb, func_data, Rc::clone(&symbol_table));
                                 let const_name = const_def.id;
                                 // Add to symbol table
                                 Rc::get_mut(&mut symbol_table).unwrap().table.insert(const_name, (const_val, DefType::Const));
@@ -84,7 +156,7 @@ impl ast::Block {
                                 // Add to symbol table
                                 Rc::get_mut(&mut symbol_table).unwrap().table.insert(var_name, (var_val, DefType::Var));
                                 if let Some(init_val) = var_def.init_val {
-                                    let init_val = init_val.dump(bb, func_data, &symbol_table);
+                                    let init_val = init_val.dump(bb, func_data, Rc::clone(&symbol_table));
                                     let store = func_data.dfg_mut().new_value().store(init_val, var_val);
                                     func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(store).unwrap();
                                 }
@@ -93,38 +165,11 @@ impl ast::Block {
                     }
                 }
                 ast::BlockItem::Stmt(stmt) => {
-                    match stmt {
-                        ast::Stmt::Assign(lval, exp) => {
-                            let val = symbol_table.find(&lval).unwrap().0.clone();
-                            let exp_val = exp.dump(bb, func_data, &symbol_table);
-                            let store = func_data.dfg_mut().new_value().store(exp_val, val);
-                            func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(store).unwrap();
-                        }
-                        ast::Stmt::Block(block) => {
-                            let mut new_table = Rc::new(SymbolTable::new());
-                            Rc::get_mut(&mut new_table).unwrap().old = Some(Rc::clone(&symbol_table));
-                            if let None = block.dump(bb, func_data, new_table) {
-                                return None;
-                            }
-                        }
-                        ast::Stmt::Ret(ret) => {
-                            let ret_val = match ret {
-                                Some(exp) => exp.dump(bb, func_data, &symbol_table),
-                                None => func_data.dfg_mut().new_value().integer(0),
-                            };
-                            let ret = func_data.dfg_mut().new_value().ret(Some(ret_val));
-                            func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(ret).unwrap();
-                            // Exit
-                            return None;
-                        }
-                        _ => {
-                            //do nothing
-                        }
-                    }
+                    bb = stmt.dump(bb, func_data, Rc::clone(&symbol_table));
                 }
             }
         }
-        Some(())
+        bb
     }
 }
 
@@ -137,11 +182,13 @@ impl ast::Program {
             FunctionData::new(("@".to_owned() + &self.func.id).into(), Vec::new(), Type::get_i32()),
         );
         let main_data = program.func_mut(main);
-        let entry = main_data.dfg_mut().new_bb().basic_block(Some("%entry".into()));
-        main_data.layout_mut().bbs_mut().push_key_back(entry).unwrap();
-
+        
         let symbol_table = Rc::new(SymbolTable::new());
-        self.func.block.dump(entry, main_data, symbol_table);
+        let entry = main_data.dfg_mut().new_bb().basic_block(Some("%entry".to_string()));
+        main_data.layout_mut().bbs_mut().push_key_back(entry).unwrap();
+        let last_bb = self.func.block.dump(entry, main_data, symbol_table);
+        let ret = main_data.dfg_mut().new_value().ret(None);
+        main_data.layout_mut().bb_mut(last_bb).insts_mut().push_key_back(ret).unwrap();
 
         program
     }
