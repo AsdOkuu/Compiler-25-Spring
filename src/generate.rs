@@ -83,6 +83,19 @@ fn get_offset(offset: usize, text: &mut String) -> String {
     "0(t4)".to_string()
 }
 
+fn load_value(reg: String, value: Value, func_data: &FunctionData, pos: &HashMap<Value, usize>) -> String {
+    match func_data.dfg().value(value).kind() {
+        ValueKind::Integer(int) => {
+            "li ".to_string() + &reg + ", " + &int.value().to_string() + "\n"
+        },
+        _ => {
+            let mut text = String::new();
+            let offset = get_offset(pos[&value], &mut text);
+            text + "lw " + &reg + ", " + &offset + "\n"
+        }
+    }
+}
+
 fn check_for_bb(bb: BasicBlock, func_data: &FunctionData, sp_delta: usize, pos: &HashMap<Value, usize>, bb_count: &mut usize, check: &mut HashMap<BasicBlock, usize>) -> (usize, String) {
     match check.get(&bb) {
         None => {
@@ -106,16 +119,8 @@ fn bb_gen_riscv32(bb: BasicBlock, func_data: &FunctionData, sp_delta: usize, pos
         // Only visit return
         match value_data.kind() {
             ValueKind::Return(ret) => {
-                let value = ret.value().unwrap();
-                let value_data = func_data.dfg().value(value);
-                match value_data.kind() {
-                    ValueKind::Integer(int) => {
-                        text += &("li a0, ".to_string() + &int.value().to_string() + "\n");
-                    },
-                    _ => {
-                        let offset = get_offset(pos[&value], &mut text);
-                        text += &("lw a0, ".to_string() + &offset + "\n");
-                    }
+                if let Some(ret_value) = ret.value() {
+                    text += &load_value("a0".to_string(), ret_value, func_data, pos);
                 }
                 text += &("li t0, ".to_string() + &sp_delta.to_string() + "\n");
                 text += "add sp, sp, t0\n";
@@ -125,17 +130,7 @@ fn bb_gen_riscv32(bb: BasicBlock, func_data: &FunctionData, sp_delta: usize, pos
                 // do nothing
             },
             ValueKind::Store(store) => {
-                let value = store.value();
-                let value_data = func_data.dfg().value(value);
-                match value_data.kind() {
-                    ValueKind::Integer(int) => {
-                        text += &("li t0, ".to_string() + &int.value().to_string() + "\n");
-                    },
-                    _ => {
-                        let offset = get_offset(pos[&value], &mut text);
-                        text += &("lw t0, ".to_string() + &offset + "\n");
-                    }
-                }
+                text += &load_value("t0".to_string(), store.value(), func_data, pos);
                 let offset = get_offset(pos[&store.dest()], &mut text);
                 text += &("sw t0, ".to_string() + &offset + "\n");
             },
@@ -151,32 +146,9 @@ fn bb_gen_riscv32(bb: BasicBlock, func_data: &FunctionData, sp_delta: usize, pos
                 }
             },
             ValueKind::Binary(bin) => {
-                let lhs = bin.lhs();
-                let rhs = bin.rhs();
-                let lhs_data = func_data.dfg().value(lhs);
-                let rhs_data = func_data.dfg().value(rhs);
-
-                match lhs_data.kind() {
-                    ValueKind::Integer(int) => {
-                        text += &("li t0, ".to_string() + &int.value().to_string() + "\n");
-                    },
-                    _ => {
-                        let offset = get_offset(pos[&lhs], &mut text);
-                        text += &("lw t0, ".to_string() + &offset + "\n");
-                    }
-                }
-                match rhs_data.kind() {
-                    ValueKind::Integer(int) => {
-                        text += &("li t1, ".to_string() + &int.value().to_string() + "\n");
-                    },
-                    _ => {
-                        let offset = get_offset(pos[&rhs], &mut text);
-                        text += &("lw t1, ".to_string() + &offset + "\n");
-                    }
-                }
-
+                text += &load_value("t0".to_string(), bin.lhs(), func_data, pos);
+                text += &load_value("t1".to_string(), bin.rhs(), func_data, pos);
                 text += &parse_binary(bin.op());
-
                 let offset = get_offset(pos[&inst], &mut text);
                 text += &("sw t2, ".to_string() + &offset + "\n");
             },
@@ -187,25 +159,12 @@ fn bb_gen_riscv32(bb: BasicBlock, func_data: &FunctionData, sp_delta: usize, pos
                 text += &new_text;
             },
             ValueKind::Branch(branch) => {
-                let cond = branch.cond();
-
-                match func_data.dfg().value(cond).kind() {
-                    ValueKind::Integer(int) => {
-                        text += &("li t0, ".to_string() + &int.value().to_string() + "\n");
-                    },
-                    _ => {
-                        let offset = get_offset(pos[&cond], &mut text);
-                        text += &("lw t0, ".to_string() + &offset + "\n");
-                    }
-                }
+                text += &load_value("t0".to_string(), branch.cond(), func_data, pos);
 
                 let true_bb = branch.true_bb();
                 let false_bb = branch.false_bb();
-                
                 let (true_id, true_text) = check_for_bb(true_bb, func_data, sp_delta, pos, bb_count, check);
                 let (false_id, false_text) = check_for_bb(false_bb, func_data, sp_delta, pos, bb_count, check);
-
-                
 
                 text += &("bnez t0, ".to_string() + prefix + &true_id.to_string() + "\n");
                 text += &("j ".to_string() + prefix + &false_id.to_string() + "\n");

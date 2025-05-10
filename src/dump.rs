@@ -77,11 +77,13 @@ impl ast::Stmt {
                 bb = block.dump(bb, func_data, new_table);
             }
             ast::Stmt::Ret(ret) => {
-                let ret_val = match ret {
-                    Some(exp) => exp.dump(bb, func_data, Rc::clone(&symbol_table)),
-                    None => func_data.dfg_mut().new_value().integer(0),
+                let ret = match ret {
+                    Some(exp) => {
+                        let ret_value = exp.dump(bb, func_data, Rc::clone(&symbol_table));
+                        func_data.dfg_mut().new_value().ret(Some(ret_value))
+                    }
+                    None => func_data.dfg_mut().new_value().ret(None)
                 };
-                let ret = func_data.dfg_mut().new_value().ret(Some(ret_val));
                 func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(ret).unwrap();
                 // New a bb
                 bb = func_data.dfg_mut().new_bb().basic_block(None);
