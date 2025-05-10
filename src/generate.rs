@@ -77,13 +77,10 @@ fn parse_binary(op: BinaryOp) -> String {
 
 /* Get offset */
 fn get_offset(offset: usize, text: &mut String) -> String {
-    if offset <= 2048 {
-        offset.to_string() + "(sp)"
-    }else {
-        *text += &("li t3, ".to_string() + &offset.to_string() + "\n");
-        *text += "add t3, sp, t3\n";
-        "0(t3)".to_string()
-    }
+
+    *text += &("li t4, ".to_string() + &offset.to_string() + "\n");
+    *text += "add t4, sp, t4\n";
+    "0(t4)".to_string()
 }
 
 fn check_for_bb(bb: BasicBlock, func_data: &FunctionData, sp_delta: usize, pos: &HashMap<Value, usize>, bb_count: &mut usize, check: &mut HashMap<BasicBlock, usize>) -> (usize, String) {
