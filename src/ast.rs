@@ -29,7 +29,25 @@ pub enum Stmt {
     Exp(Exp),
     Block(Block),
     Ret(Option<Exp>),
+    If(If),
     Blank,
+}
+
+#[derive(Debug)]
+pub struct If {
+    pub exp: Exp,
+    pub then_stmt: Box<Stmt>,
+    pub else_stmt: Option<Box<Stmt>>,
+}
+
+impl If {
+    pub fn single(exp: Exp, stmt: Stmt) -> If {
+        If { exp, then_stmt: Box::new(stmt), else_stmt: None }
+    }
+
+    pub fn complex(exp: Exp, then_stmt: Stmt, else_stmt: Stmt) -> If {
+        If { exp, then_stmt: Box::new(then_stmt), else_stmt: Some(Box::new(else_stmt)) }
+    }
 }
 
 #[derive(Debug)]

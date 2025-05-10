@@ -40,6 +40,21 @@ BlockItem: BlockItem = {
 }
 
 Stmt: Stmt = {
+    <stmt: OpenStmt> => <>,
+    <stmt: CloseStmt> => <>,
+}
+
+OpenStmt: Stmt = {
+    "if" "(" <exp: Exp> ")" <stmt: Stmt> => Stmt::If(If::single(<>)),
+    "if" "(" <exp: Exp> ")" <then_stmt: CloseStmt> "else" <else_stmt: OpenStmt> => Stmt::If(If::complex(<>)),
+}
+
+CloseStmt: Stmt = {
+    <simple_stmt: SimpleStmt> => <>,
+    "if" "(" <exp: Exp> ")" <then_stmt: CloseStmt> "else" <else_stmt: CloseStmt> => Stmt::If(If::complex(<>)),
+}
+
+SimpleStmt: Stmt = {
     <lval: LVal> "=" <exp: Exp> ";" => Stmt::Assign(<>),
     <exp: Exp> ";" => Stmt::Exp(<>),
     <block: Block> => Stmt::Block(<>),
