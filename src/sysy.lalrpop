@@ -190,14 +190,8 @@ EqOp: BinaryOp = {
 LAndExp: Exp = {
     <eq_exp: EqExp> => <>,
     <land_exp: LAndExp> "&&" <eq_exp: EqExp> => {
-        let e0 = {
-            let e = Exp::binary(Exp::single(0), BinaryOp::Eq, land_exp);
-            Exp::binary(Exp::single(0), BinaryOp::Eq, e)
-        };
-        let e1 = {
-            let e = Exp::binary(Exp::single(0), BinaryOp::Eq, eq_exp);
-            Exp::binary(Exp::single(0), BinaryOp::Eq, e)
-        };
+        let e0 = Exp::binary(Exp::single(0), BinaryOp::NotEq, land_exp);
+        let e1 = Exp::binary(Exp::single(0), BinaryOp::NotEq, eq_exp);
         Exp::binary(e0, BinaryOp::And, e1)
     }
 }
@@ -205,14 +199,8 @@ LAndExp: Exp = {
 LOrExp: Exp = {
     <land_exp: LAndExp> => <>,
     <lor_exp: LOrExp> "||" <land_exp: LAndExp> => {
-        let e0 = {
-            let e = Exp::binary(Exp::single(0), BinaryOp::Eq, lor_exp);
-            Exp::binary(Exp::single(0), BinaryOp::Eq, e)
-        };
-        let e1 = {
-            let e = Exp::binary(Exp::single(0), BinaryOp::Eq, land_exp);
-            Exp::binary(Exp::single(0), BinaryOp::Eq, e)
-        };
+        let e0 = Exp::binary(Exp::single(0), BinaryOp::NotEq, lor_exp);
+        let e1 = Exp::binary(Exp::single(0), BinaryOp::NotEq, land_exp);
         Exp::binary(e0, BinaryOp::Or, e1)
     }
 }

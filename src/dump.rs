@@ -33,28 +33,85 @@ impl SymbolTable {
 }
 
 impl ast::Exp {
-    fn dump(self, bb: BasicBlock, data: &mut FunctionData, symbol_table: Rc<SymbolTable>) -> Value {
+    fn dump(self, mut bb: BasicBlock, func_data: &mut FunctionData, symbol_table: Rc<SymbolTable>) -> (Value, BasicBlock) {
         match *self.core {
             ast::ExpCore::Binary(e0, op, e1) => {
-                let v0 = e0.dump(bb, data, Rc::clone(&symbol_table));
-                let v1 = e1.dump(bb, data, Rc::clone(&symbol_table));
-                let v = data.dfg_mut().new_value().binary(op, v0, v1);
-                data.layout_mut().bb_mut(bb).insts_mut().push_key_back(v).unwrap();
-                v
+                match op {
+                    op @ (BinaryOp::And | BinaryOp::Or) => {
+                        // parse e0
+                        let zero = func_data.dfg_mut().new_value().integer(0);
+                        let (v0, new_bb) = e0.dump(bb, func_data, Rc::clone(&symbol_table));
+                        bb = new_bb;
+
+                        // assign value
+                        let value = func_data.dfg_mut().new_value().alloc(Type::get_i32());
+                        func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(value).unwrap();
+                        let assign1 = func_data.dfg_mut().new_value().store(v0, value);
+                        func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(assign1).unwrap();
+                        // let load = func_data.dfg_mut().new_value().load(value);
+                        // func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(load).unwrap();
+                        
+                        // calc cond
+                        let cond = match op {
+                            BinaryOp::Or => {
+                                let v = func_data.dfg_mut().new_value().binary(BinaryOp::Eq, v0, zero);
+                                func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(v).unwrap();
+                                v
+                            }
+                            BinaryOp::And => {
+                                v0
+                            }
+                            _ => unreachable!()
+                        };
+                        
+
+                        // New then bb
+                        let then_bb = func_data.dfg_mut().new_bb().basic_block(None);
+                        func_data.layout_mut().bbs_mut().push_key_back(then_bb).unwrap();
+
+                        // parse e1
+                        let (v1, then_last_bb) = e1.dump(then_bb, func_data, Rc::clone(&symbol_table));
+
+                        // assign value
+                        let assign2 = func_data.dfg_mut().new_value().store(v1, value);
+                        func_data.layout_mut().bb_mut(then_last_bb).insts_mut().push_key_back(assign2).unwrap();
+                        
+                        // New end bb
+                        let end_bb = func_data.dfg_mut().new_bb().basic_block(None);
+                        func_data.layout_mut().bbs_mut().push_key_back(end_bb).unwrap();
+                        
+                        // br & jump
+                        let br = func_data.dfg_mut().new_value().branch(cond, then_bb, end_bb);
+                        func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(br).unwrap();
+                        let jump = func_data.dfg_mut().new_value().jump(end_bb);
+                        func_data.layout_mut().bb_mut(then_last_bb).insts_mut().push_key_back(jump).unwrap();
+                        
+                        let load = func_data.dfg_mut().new_value().load(value);
+                        func_data.layout_mut().bb_mut(end_bb).insts_mut().push_key_back(load).unwrap();
+                        (load, end_bb)
+                    }
+                    op => {
+                        let (v0, new_bb) = e0.dump(bb, func_data, Rc::clone(&symbol_table));
+                        let (v1, new_bb) = e1.dump(new_bb, func_data, Rc::clone(&symbol_table));
+                        let v = func_data.dfg_mut().new_value().binary(op, v0, v1);
+                        func_data.layout_mut().bb_mut(new_bb).insts_mut().push_key_back(v).unwrap();
+                        (v, new_bb)
+                    }
+                }
             },
             ast::ExpCore::Single(i) => {
-                data.dfg_mut().new_value().integer(i)
+                (func_data.dfg_mut().new_value().integer(i), bb)
             },
             ast::ExpCore::Ident(id) => {
                 let (v, t) = symbol_table.find(&id).unwrap();
                 match t {
                     DefType::Const => {
-                        v.clone()
+                        (v.clone(), bb)
                     },
                     DefType::Var => {
-                        let load = data.dfg_mut().new_value().load(v.clone());
-                        data.layout_mut().bb_mut(bb).insts_mut().push_key_back(load).unwrap();
-                        load
+                        let load = func_data.dfg_mut().new_value().load(v.clone());
+                        func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(load).unwrap();
+                        (load, bb)
                     },
                 }
             }
@@ -67,7 +124,8 @@ impl ast::Stmt {
         match self {
             ast::Stmt::Assign(lval, exp) => {
                 let val = symbol_table.find(&lval).unwrap().0.clone();
-                let exp_val = exp.dump(bb, func_data, Rc::clone(&symbol_table));
+                let (exp_val, new_bb) = exp.dump(bb, func_data, Rc::clone(&symbol_table));
+                bb = new_bb;
                 let store = func_data.dfg_mut().new_value().store(exp_val, val);
                 func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(store).unwrap();
             }
@@ -79,7 +137,8 @@ impl ast::Stmt {
             ast::Stmt::Ret(ret) => {
                 let ret = match ret {
                     Some(exp) => {
-                        let ret_value = exp.dump(bb, func_data, Rc::clone(&symbol_table));
+                        let (ret_value, new_bb) = exp.dump(bb, func_data, Rc::clone(&symbol_table));
+                        bb = new_bb;
                         func_data.dfg_mut().new_value().ret(Some(ret_value))
                     }
                     None => func_data.dfg_mut().new_value().ret(None)
@@ -90,7 +149,8 @@ impl ast::Stmt {
                 func_data.layout_mut().bbs_mut().push_key_back(bb).unwrap();
             }
             ast::Stmt::If(if_stmt) => {
-                let cond = if_stmt.exp.dump(bb, func_data, Rc::clone(&symbol_table));
+                let (cond, new_bb) = if_stmt.exp.dump(bb, func_data, Rc::clone(&symbol_table));
+                bb = new_bb;
                 // New then bb
                 let then_bb = func_data.dfg_mut().new_bb().basic_block(None);
                 func_data.layout_mut().bbs_mut().push_key_back(then_bb).unwrap();
@@ -144,7 +204,8 @@ impl ast::Block {
                     match decl {
                         ast::Decl::Const(const_decl) => {
                             for const_def in const_decl.const_def_list {
-                                let const_val = const_def.const_init_val.dump(bb, func_data, Rc::clone(&symbol_table));
+                                let (const_val, new_bb) = const_def.const_init_val.dump(bb, func_data, Rc::clone(&symbol_table));
+                                bb = new_bb;
                                 let const_name = const_def.id;
                                 // Add to symbol table
                                 Rc::get_mut(&mut symbol_table).unwrap().table.insert(const_name, (const_val, DefType::Const));
@@ -158,7 +219,8 @@ impl ast::Block {
                                 // Add to symbol table
                                 Rc::get_mut(&mut symbol_table).unwrap().table.insert(var_name, (var_val, DefType::Var));
                                 if let Some(init_val) = var_def.init_val {
-                                    let init_val = init_val.dump(bb, func_data, Rc::clone(&symbol_table));
+                                    let (init_val, new_bb) = init_val.dump(bb, func_data, Rc::clone(&symbol_table));
+                                    bb = new_bb;
                                     let store = func_data.dfg_mut().new_value().store(init_val, var_val);
                                     func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(store).unwrap();
                                 }
