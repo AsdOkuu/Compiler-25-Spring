@@ -60,6 +60,8 @@ SimpleStmt: Stmt = {
     <lval: LVal> "=" <exp: Exp> ";" => Stmt::Assign(<>),
     <exp: Exp> ";" => Stmt::Exp(<>),
     <block: Block> => Stmt::Block(<>),
+    "continue" ";" => Stmt::Continue,
+    "break" ";" => Stmt::Break,
     "return" <exp: Exp> ";" => Stmt::Ret(Some(<>)),
     "return" ";" => Stmt::Ret(None),
     ";" => Stmt::Blank,

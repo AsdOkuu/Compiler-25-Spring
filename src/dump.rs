@@ -119,8 +119,14 @@ impl ast::Exp {
     }
 }
 
+#[derive(Clone, Copy)]
+struct WhileInfo {
+    exp_bb: BasicBlock,
+    end_bb: BasicBlock,
+}
+
 impl ast::Stmt {
-    fn dump(self, mut bb: BasicBlock, func_data: &mut FunctionData, symbol_table: Rc<SymbolTable>) -> BasicBlock {
+    fn dump(self, mut bb: BasicBlock, func_data: &mut FunctionData, symbol_table: Rc<SymbolTable>, while_info: Option<WhileInfo>) -> BasicBlock {
         match self {
             ast::Stmt::Assign(lval, exp) => {
                 let val = symbol_table.find(&lval).unwrap().0.clone();
@@ -132,7 +138,7 @@ impl ast::Stmt {
             ast::Stmt::Block(block) => {
                 let mut new_table = Rc::new(SymbolTable::new());
                 Rc::get_mut(&mut new_table).unwrap().old = Some(Rc::clone(&symbol_table));
-                bb = block.dump(bb, func_data, new_table);
+                bb = block.dump(bb, func_data, new_table, while_info);
             }
             ast::Stmt::Ret(ret) => {
                 let ret = match ret {
@@ -154,7 +160,7 @@ impl ast::Stmt {
                 // New then bb
                 let then_bb = func_data.dfg_mut().new_bb().basic_block(None);
                 func_data.layout_mut().bbs_mut().push_key_back(then_bb).unwrap();
-                let then_last_bb = if_stmt.then_stmt.dump(then_bb, func_data, Rc::clone(&symbol_table));
+                let then_last_bb = if_stmt.then_stmt.dump(then_bb, func_data, Rc::clone(&symbol_table), while_info);
                 // New end bb
                 let end_bb = func_data.dfg_mut().new_bb().basic_block(None);
                 func_data.layout_mut().bbs_mut().push_key_back(end_bb).unwrap();
@@ -164,7 +170,7 @@ impl ast::Stmt {
                         // New else bb
                         let else_bb = func_data.dfg_mut().new_bb().basic_block(None);
                         func_data.layout_mut().bbs_mut().push_key_back(else_bb).unwrap();
-                        let else_last_bb = else_stmt.dump(else_bb, func_data, Rc::clone(&symbol_table));
+                        let else_last_bb = else_stmt.dump(else_bb, func_data, Rc::clone(&symbol_table), while_info);
                         
                         // bb -> then_bb | else_bb
                         let br_then = func_data.dfg_mut().new_value().branch(cond, then_bb, else_bb);
@@ -202,11 +208,35 @@ impl ast::Stmt {
                 let br = func_data.dfg_mut().new_value().branch(exp_value, body_bb, end_bb);
                 func_data.layout_mut().bb_mut(exp_last_bb).insts_mut().push_key_back(br).unwrap();
 
-                let body_last_bb = stmt.dump(body_bb, func_data, Rc::clone(&symbol_table));
+                let body_last_bb = stmt.dump(body_bb, func_data, Rc::clone(&symbol_table), Some(WhileInfo { exp_bb, end_bb }));
                 let jump = func_data.dfg_mut().new_value().jump(exp_bb);
                 func_data.layout_mut().bb_mut(body_last_bb).insts_mut().push_key_back(jump).unwrap();
 
                 bb = end_bb;
+            }
+            ast::Stmt::Continue => {
+                match while_info {
+                    Some(while_info) => {
+                        let jump = func_data.dfg_mut().new_value().jump(while_info.exp_bb);
+                        func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(jump).unwrap();
+
+                        bb = func_data.dfg_mut().new_bb().basic_block(None);
+                        func_data.layout_mut().bbs_mut().push_key_back(bb).unwrap();
+                    }
+                    None => panic!()
+                }
+            }
+            ast::Stmt::Break => {
+                match while_info {
+                    Some(while_info) => {
+                        let jump = func_data.dfg_mut().new_value().jump(while_info.end_bb);
+                        func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(jump).unwrap();
+
+                        bb = func_data.dfg_mut().new_bb().basic_block(None);
+                        func_data.layout_mut().bbs_mut().push_key_back(bb).unwrap();
+                    }
+                    None => panic!()
+                }
             }
             _ => {
                 //do nothing
@@ -217,7 +247,7 @@ impl ast::Stmt {
 }
 
 impl ast::Block {
-    fn dump(self, mut bb: BasicBlock, func_data: &mut FunctionData, mut symbol_table: Rc<SymbolTable>) -> BasicBlock {
+    fn dump(self, mut bb: BasicBlock, func_data: &mut FunctionData, mut symbol_table: Rc<SymbolTable>, while_info: Option<WhileInfo>) -> BasicBlock {
 
         for item in self.block_item_list {
             match item {
@@ -250,7 +280,7 @@ impl ast::Block {
                     }
                 }
                 ast::BlockItem::Stmt(stmt) => {
-                    bb = stmt.dump(bb, func_data, Rc::clone(&symbol_table));
+                    bb = stmt.dump(bb, func_data, Rc::clone(&symbol_table), while_info);
                 }
             }
         }
@@ -271,7 +301,7 @@ impl ast::Program {
         let symbol_table = Rc::new(SymbolTable::new());
         let entry = main_data.dfg_mut().new_bb().basic_block(Some("%entry".to_string()));
         main_data.layout_mut().bbs_mut().push_key_back(entry).unwrap();
-        let last_bb = self.func.block.dump(entry, main_data, symbol_table);
+        let last_bb = self.func.block.dump(entry, main_data, symbol_table, None);
         let ret = main_data.dfg_mut().new_value().ret(None);
         main_data.layout_mut().bb_mut(last_bb).insts_mut().push_key_back(ret).unwrap();
 

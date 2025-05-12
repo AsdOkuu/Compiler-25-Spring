@@ -31,6 +31,8 @@ pub enum Stmt {
     Ret(Option<Exp>),
     If(If),
     While(Exp, Box<Stmt>),
+    Continue,
+    Break,
     Blank,
 }
 
