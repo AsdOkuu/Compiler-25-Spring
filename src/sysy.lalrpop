@@ -47,11 +47,13 @@ Stmt: Stmt = {
 OpenStmt: Stmt = {
     "if" "(" <exp: Exp> ")" <stmt: Stmt> => Stmt::If(If::single(<>)),
     "if" "(" <exp: Exp> ")" <then_stmt: CloseStmt> "else" <else_stmt: OpenStmt> => Stmt::If(If::complex(<>)),
+    "while" "(" <exp: Exp> ")" <stmt: OpenStmt> => Stmt::While(exp, Box::new(stmt)),
 }
 
 CloseStmt: Stmt = {
     <simple_stmt: SimpleStmt> => <>,
     "if" "(" <exp: Exp> ")" <then_stmt: CloseStmt> "else" <else_stmt: CloseStmt> => Stmt::If(If::complex(<>)),
+    "while" "(" <exp: Exp> ")" <stmt: CloseStmt> => Stmt::While(exp, Box::new(stmt)),
 }
 
 SimpleStmt: Stmt = {

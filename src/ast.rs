@@ -30,6 +30,7 @@ pub enum Stmt {
     Block(Block),
     Ret(Option<Exp>),
     If(If),
+    While(Exp, Box<Stmt>),
     Blank,
 }
 

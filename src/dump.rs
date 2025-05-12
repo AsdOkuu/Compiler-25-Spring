@@ -158,7 +158,6 @@ impl ast::Stmt {
                 // New end bb
                 let end_bb = func_data.dfg_mut().new_bb().basic_block(None);
                 func_data.layout_mut().bbs_mut().push_key_back(end_bb).unwrap();
-
                 
                 match if_stmt.else_stmt {
                     Some(else_stmt) => {
@@ -184,6 +183,28 @@ impl ast::Stmt {
                 // then_last_bb -> end_bb
                 let jump_end = func_data.dfg_mut().new_value().jump(end_bb);
                 func_data.layout_mut().bb_mut(then_last_bb).insts_mut().push_key_back(jump_end).unwrap();
+
+                bb = end_bb;
+            }
+            ast::Stmt::While(exp, stmt) => {
+                // new exp_bb & body_bb & end_bb
+                let exp_bb = func_data.dfg_mut().new_bb().basic_block(None);
+                let body_bb = func_data.dfg_mut().new_bb().basic_block(None);
+                let end_bb = func_data.dfg_mut().new_bb().basic_block(None);
+                func_data.layout_mut().bbs_mut().push_key_back(exp_bb).unwrap();
+                func_data.layout_mut().bbs_mut().push_key_back(body_bb).unwrap();
+                func_data.layout_mut().bbs_mut().push_key_back(end_bb).unwrap();
+
+                let jump0 = func_data.dfg_mut().new_value().jump(exp_bb);
+                func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(jump0).unwrap();
+                
+                let (exp_value, exp_last_bb) = exp.dump(exp_bb, func_data, Rc::clone(&symbol_table));
+                let br = func_data.dfg_mut().new_value().branch(exp_value, body_bb, end_bb);
+                func_data.layout_mut().bb_mut(exp_last_bb).insts_mut().push_key_back(br).unwrap();
+
+                let body_last_bb = stmt.dump(body_bb, func_data, Rc::clone(&symbol_table));
+                let jump = func_data.dfg_mut().new_value().jump(exp_bb);
+                func_data.layout_mut().bb_mut(body_last_bb).insts_mut().push_key_back(jump).unwrap();
 
                 bb = end_bb;
             }
