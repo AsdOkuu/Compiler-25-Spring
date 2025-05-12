@@ -302,7 +302,8 @@ impl ast::Program {
         let entry = main_data.dfg_mut().new_bb().basic_block(Some("%entry".to_string()));
         main_data.layout_mut().bbs_mut().push_key_back(entry).unwrap();
         let last_bb = self.func.block.dump(entry, main_data, symbol_table, None);
-        let ret = main_data.dfg_mut().new_value().ret(None);
+        let zero = main_data.dfg_mut().new_value().integer(0);
+        let ret = main_data.dfg_mut().new_value().ret(Some(zero));
         main_data.layout_mut().bb_mut(last_bb).insts_mut().push_key_back(ret).unwrap();
 
         program
