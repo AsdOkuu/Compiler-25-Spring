@@ -2,8 +2,7 @@ use koopa::ir::BinaryOp;
 
 #[derive(Debug)]
 pub struct Program {
-    pub func_list: Vec<FuncDef>,
-    pub decl_list: Vec<Decl>
+    pub list: Vec<Result<FuncDef, Decl>>
 }
 
 #[derive(Debug)]

@@ -133,6 +133,81 @@ impl ast::Exp {
             }
         }
     }
+
+    fn dump_const(self) -> i32 {
+        match *self.core {
+            ast::ExpCore::Single(i) => i,
+            ast::ExpCore::Binary(e0, op, e1) => {
+                let x = e0.dump_const();
+                let y = e1.dump_const();
+                match op {
+                    BinaryOp::Add => x + y,
+                    BinaryOp::Sub => x - y,
+                    BinaryOp::Mul => x * y,
+                    BinaryOp::Div => x / y,
+                    BinaryOp::Mod => x % y,
+                    BinaryOp::And => {
+                        if x & y == 0 {
+                            0
+                        }else {
+                            1
+                        }
+                    }
+                    BinaryOp::Or => {
+                        if x | y == 0 {
+                            0
+                        }else {
+                            1
+                        }
+                    }
+                    BinaryOp::Eq => {
+                        if x == y {
+                            1
+                        }else {
+                            0
+                        }
+                    }
+                    BinaryOp::NotEq => {
+                        if x == y {
+                            0
+                        }else {
+                            1
+                        }
+                    }
+                    BinaryOp::Ge => {
+                        if x >= y {
+                            1
+                        }else {
+                            0
+                        }
+                    }
+                    BinaryOp::Le => {
+                        if x <= y {
+                            1
+                        }else {
+                            0
+                        }
+                    }
+                    BinaryOp::Gt => {
+                        if x > y {
+                            1
+                        }else {
+                            0
+                        }
+                    }
+                    BinaryOp::Lt => {
+                        if x < y {
+                            1
+                        }else {
+                            0
+                        }
+                    }
+                    _ => unreachable!()
+                }
+            }
+            _ => unreachable!()
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -309,8 +384,9 @@ impl ast::Block {
 }
 
 impl ast::FuncDef {
-    pub fn dump(self, func_data: &mut FunctionData, func_table: &HashMap<String, Function>) {
+    fn dump(self, func_data: &mut FunctionData, func_table: &HashMap<String, Function>, old_symbol_table: Rc<SymbolTable>) {
         let mut symbol_table = Rc::new(SymbolTable::new());
+        Rc::get_mut(&mut symbol_table).unwrap().old = Some(old_symbol_table);
         let entry = func_data.dfg_mut().new_bb().basic_block(Some("%entry".to_string()));
         func_data.layout_mut().bbs_mut().push_key_back(entry).unwrap();
 
@@ -324,8 +400,18 @@ impl ast::FuncDef {
         }
 
         let last_bb = self.block.dump(entry, func_data, symbol_table, None, func_table);
-        let zero = func_data.dfg_mut().new_value().integer(0);
-        let ret = func_data.dfg_mut().new_value().ret(Some(zero));
+        
+        let ret = match func_data.ty().kind() {
+            TypeKind::Function(_, ret_type) => {
+                if ret_type.is_unit() {
+                    func_data.dfg_mut().new_value().ret(None)
+                }else {
+                    let zero = func_data.dfg_mut().new_value().integer(0);
+                    func_data.dfg_mut().new_value().ret(Some(zero))
+                }
+            }
+            _ => unreachable!()
+        };
         func_data.layout_mut().bb_mut(last_bb).insts_mut().push_key_back(ret).unwrap();
     }
 }
@@ -387,34 +473,69 @@ impl ast::Program {
     pub fn dump(self) -> Program {
         let mut program = Program::new();
         let mut func_table = HashMap::new();
+        let mut symbol_table = Rc::new(SymbolTable::new());
 
         push_runtime_func(&mut program, &mut func_table);
         
-        for func_def in self.func_list.iter() {
-            
-            let mut param_ty = Vec::new();
-            for param in func_def.func_param_list.iter() {
-                param_ty.push((Some("@".to_owned() + &param.0), Type::get_i32()));
-            }
-            let ret_ty = match func_def.func_type {
-                ast::FuncType::Int => Type::get_i32(),
-                ast::FuncType::Void => Type::get_unit(),
-            };
-            let func = program.new_func(
-                FunctionData::with_param_names(("@".to_owned() + &func_def.id).into(), param_ty, ret_ty),
-            );
-            
+        let mut func_list = vec![];
 
-            func_table.insert(func_def.id.clone(), func);
+        for def in self.list {
+            match def {
+                Ok(func_def) => {
+                    let mut param_ty = Vec::new();
+                    for param in func_def.func_param_list.iter() {
+                        param_ty.push((Some("@".to_owned() + &param.0), Type::get_i32()));
+                    }
+                    let ret_ty = match func_def.func_type {
+                        ast::FuncType::Int => Type::get_i32(),
+                        ast::FuncType::Void => Type::get_unit(),
+                    };
+                    let func = program.new_func(
+                        FunctionData::with_param_names(("@".to_owned() + &func_def.id).into(), param_ty, ret_ty),
+                    );
+                    func_table.insert(func_def.id.clone(), func);
+                    func_list.push(func_def);
+                },
+                Err(decl) => {
+                    match decl {
+                        ast::Decl::Const(const_decl) => {
+                            for const_def in const_decl.const_def_list {
+                                let val_const = const_def.const_init_val.dump_const();
+                                let value = program.new_value().integer(val_const);
+                                let const_name = const_def.id;
+                                let alloc = program.new_value().global_alloc(value);
+                                // Add to symbol table
+                                Rc::get_mut(&mut symbol_table).unwrap().table.insert(const_name, (alloc, DefType::Var));
+                            }
+                        }
+                        ast::Decl::Var(var_decl) => {
+                            for var_def in var_decl.var_def_list {
+                                let value = match var_def.init_val {
+                                    Some(exp) => {
+                                        let val_const = exp.dump_const();
+                                        let value = program.new_value().integer(val_const);
+                                        program.new_value().global_alloc(value)
+                                    }
+                                    None => {
+                                        let value = program.new_value().zero_init(Type::get_i32());
+                                        program.new_value().global_alloc(value)
+                                    }
+                                };
+                                let var_name = var_def.id;
+                                // Add to symbol table
+                                Rc::get_mut(&mut symbol_table).unwrap().table.insert(var_name, (value, DefType::Var));
+                            }
+                        }
+                    }
+                }
+            }
         }
 
-        for func_def in self.func_list.into_iter() {
+        for func_def in func_list {
             let name = func_def.id.clone();
             println!("{} dumping", name);
-            func_def.dump(program.func_mut(func_table[&name]), &func_table);
+            func_def.dump(program.func_mut(func_table[&name]), &func_table, Rc::clone(&symbol_table));
         }
-
-        
 
         program
     }

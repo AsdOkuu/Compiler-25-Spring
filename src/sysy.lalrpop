@@ -12,24 +12,32 @@ match {
 
 pub Program: Program = {
     <func: FuncDef> => {
-        Program { func_list: vec![func], decl_list: vec![] }
+        Program { list: vec![Ok(<>)] }
+    },
+    <decl: Decl> => {
+        Program { list: vec![Err(<>)] }
     },
     <program: Program> <func: FuncDef> => {
-        let mut list = program.func_list;
-        list.push(func);
-        Program { func_list: list, decl_list: program.decl_list }
+        let mut list = program.list;
+        list.push(Ok(func));
+        Program { list }
+    },
+    <program: Program> <decl: Decl> => {
+        let mut list = program.list;
+        list.push(Err(decl));
+        Program { list }
     },
 }
 
 FuncDef: FuncDef = {
-    <func_type: FuncType> <id: Ident> "(" <func_param_list: FuncParamListOrNot> ")" <block: Block> => {
-        FuncDef { <> }
+    <func_def_head: FuncDefHead> "(" <func_param_list: FuncParamListOrNot> ")" <block: Block> => {
+        FuncDef { func_type: func_def_head.0, id: func_def_head.1, func_param_list, block }
     }
 }
 
-FuncType: FuncType = {
-    "int" => FuncType::Int,
-    "void" => FuncType::Void,
+FuncDefHead: (FuncType, String) = {
+    <def_head: DefHead> => (FuncType::Int, def_head.1),
+    "void" <id: Ident> => (FuncType::Void, id)
 }
 
 FuncParamListOrNot: Vec<FuncParam> = {
@@ -98,17 +106,21 @@ Decl: Decl = {
 }
 
 VarDecl: VarDecl = {
-    <btype: BType> <var_def_list: VarDefList> ";" => {
-        VarDecl { <> }
+    <def_head: DefHead> <var_def_list: VarDefList> ";" => {
+        let (btype, id) = def_head;
+        let (op_exp, mut list) = var_def_list;
+        list.insert(0, VarDef { id: id, init_val: op_exp });
+        VarDecl { btype: btype, var_def_list: list }
     }
 }
 
-VarDefList: Vec<VarDef> = {
-    <var_def: VarDef> => vec![<>],
+VarDefList: (Option<Exp>, Vec<VarDef>) = {
+    => (None, vec![<>]),
+    "=" + <init_val: InitVal> => (Some(init_val), vec![]),
     <var_def_list: VarDefList> "," <var_def: VarDef> => {
-        let mut list = var_def_list;
+        let (op_exp, mut list) = var_def_list;
         list.push(var_def);
-        list
+        (op_exp, list)
     }
 }
 
@@ -120,6 +132,8 @@ VarDef: VarDef = {
         VarDef { id: id, init_val: None }
     }
 }
+
+DefHead: (BType, String) = <btype: BType> <id: Ident> => (<>);
 
 InitVal: Exp = <exp: Exp> => <>;
 
