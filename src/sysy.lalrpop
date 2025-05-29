@@ -12,16 +12,41 @@ match {
 
 pub Program: Program = {
     <func: FuncDef> => {
-        Program { <> }
-    }
+        Program { func_list: vec![func], decl_list: vec![] }
+    },
+    <program: Program> <func: FuncDef> => {
+        let mut list = program.func_list;
+        list.push(func);
+        Program { func_list: list, decl_list: program.decl_list }
+    },
 }
+
 FuncDef: FuncDef = {
-    <func_type: FuncType> <id: Ident> "(" ")" <block: Block> => {
+    <func_type: FuncType> <id: Ident> "(" <func_param_list: FuncParamListOrNot> ")" <block: Block> => {
         FuncDef { <> }
     }
 }
 
-FuncType: FuncType = "int" => FuncType::Int;
+FuncType: FuncType = {
+    "int" => FuncType::Int,
+    "void" => FuncType::Void,
+}
+
+FuncParamListOrNot: Vec<FuncParam> = {
+    => vec![],
+    <func_param_list: FuncParamList> => <>,
+}
+
+FuncParamList: Vec<FuncParam> = {
+    <func_param: FuncParam> => vec![func_param],
+    <func_param_list: FuncParamList> "," <func_param: FuncParam> => {
+        let mut list = func_param_list;
+        list.push(func_param);
+        list
+    }
+}
+
+FuncParam: FuncParam = <btype: BType> <ident: Ident> => FuncParam(ident);
 
 Block: Block = "{" <block_item_list: BlockItemList> "}" => Block { <> };
 
@@ -140,6 +165,21 @@ Number: i32 = <num: IntConst> => <>;
 UnaryExp: Exp = {
     <primary_exp: PrimaryExp> => <>,
     <unary_op: UnaryOp> <unary_exp: UnaryExp> => Exp::binary(Exp::single(0), <>),
+    <ident: Ident> "(" <func_real_list: FuncRealListOrNot> ")" => Exp::call(<>),
+}
+
+FuncRealListOrNot: Vec<Exp> = {
+    => vec![],
+    <func_real_list: FuncRealList> => <>,
+}
+
+FuncRealList: Vec<Exp> = {
+    <exp: Exp> => vec![exp],
+    <func_real_list: FuncRealList> "," <exp: Exp> => {
+        let mut list = func_real_list;
+        list.push(exp);
+        list
+    }
 }
 
 UnaryOp: BinaryOp = {

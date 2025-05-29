@@ -2,15 +2,26 @@ use koopa::ir::BinaryOp;
 
 #[derive(Debug)]
 pub struct Program {
-    pub func: FuncDef,
+    pub func_list: Vec<FuncDef>,
+    pub decl_list: Vec<Decl>
 }
 
 #[derive(Debug)]
 pub struct FuncDef {
     pub func_type: FuncType,
     pub id: String,
+    pub func_param_list: Vec<FuncParam>,
     pub block: Block,
 }
+
+#[derive(Debug)]
+pub enum FuncType {
+    Int,
+    Void,
+}
+
+#[derive(Debug)]
+pub struct FuncParam(pub String);
 
 #[derive(Debug)]
 pub struct Block {
@@ -51,11 +62,6 @@ impl If {
     pub fn complex(exp: Exp, then_stmt: Stmt, else_stmt: Stmt) -> If {
         If { exp, then_stmt: Box::new(then_stmt), else_stmt: Some(Box::new(else_stmt)) }
     }
-}
-
-#[derive(Debug)]
-pub enum FuncType {
-    Int,
 }
 
 #[derive(Debug)]
@@ -103,6 +109,7 @@ pub enum ExpCore {
     Binary(Exp, BinaryOp, Exp),
     Single(i32),
     Ident(String),
+    Call(String, Vec<Exp>),
 }
 
 impl Exp {
@@ -116,6 +123,10 @@ impl Exp {
 
     pub fn ident(id: String) -> Exp {
         Exp { core: Box::new(ExpCore::Ident(id)), }
+    }
+
+    pub fn call(id: String, func_real_list: Vec<Exp>) -> Exp {
+        Exp { core: Box::new(ExpCore::Call(id, func_real_list)), }
     }
 }
 
