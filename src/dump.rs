@@ -134,12 +134,13 @@ impl ast::Exp {
         }
     }
 
-    fn dump_const(self) -> i32 {
+    fn dump_const(self, const_table: &HashMap<String, i32>) -> i32 {
         match *self.core {
             ast::ExpCore::Single(i) => i,
+            ast::ExpCore::Ident(id) => const_table[&id],
             ast::ExpCore::Binary(e0, op, e1) => {
-                let x = e0.dump_const();
-                let y = e1.dump_const();
+                let x = e0.dump_const(const_table);
+                let y = e1.dump_const(const_table);
                 match op {
                     BinaryOp::Add => x + y,
                     BinaryOp::Sub => x - y,
@@ -478,6 +479,7 @@ impl ast::Program {
         push_runtime_func(&mut program, &mut func_table);
         
         let mut func_list = vec![];
+        let mut const_table = HashMap::new();
 
         for def in self.list {
             match def {
@@ -500,7 +502,8 @@ impl ast::Program {
                     match decl {
                         ast::Decl::Const(const_decl) => {
                             for const_def in const_decl.const_def_list {
-                                let val_const = const_def.const_init_val.dump_const();
+                                let val_const = const_def.const_init_val.dump_const(&const_table);
+                                const_table.insert(const_def.id.clone(), val_const);
                                 let value = program.new_value().integer(val_const);
                                 let const_name = const_def.id;
                                 let alloc = program.new_value().global_alloc(value);
@@ -512,11 +515,13 @@ impl ast::Program {
                             for var_def in var_decl.var_def_list {
                                 let value = match var_def.init_val {
                                     Some(exp) => {
-                                        let val_const = exp.dump_const();
+                                        let val_const = exp.dump_const(&const_table);
+                                        const_table.insert(var_def.id.clone(), val_const);
                                         let value = program.new_value().integer(val_const);
                                         program.new_value().global_alloc(value)
                                     }
                                     None => {
+                                        const_table.insert(var_def.id.clone(), 0);
                                         let value = program.new_value().zero_init(Type::get_i32());
                                         program.new_value().global_alloc(value)
                                     }
