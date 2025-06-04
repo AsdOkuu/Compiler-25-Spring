@@ -35,7 +35,7 @@ pub enum BlockItem {
 
 #[derive(Debug)]
 pub enum Stmt {
-    Assign(String, Exp),
+    Assign(LVal, Exp),
     Exp(Exp),
     Block(Block),
     Ret(Option<Exp>),
@@ -78,7 +78,8 @@ pub struct VarDecl {
 #[derive(Debug)]
 pub struct VarDef {
     pub id: String,
-    pub init_val: Option<Exp>,
+    pub is_array: Option<Exp>,
+    pub init_val: Option<Result<Exp, Vec<Exp>>>,
 }
 
 #[derive(Debug)]
@@ -95,7 +96,8 @@ pub enum BType {
 #[derive(Debug)]
 pub struct ConstDef {
     pub id: String,
-    pub const_init_val: Exp,
+    pub is_array: Option<Exp>,
+    pub const_init_val: Result<Exp, Vec<Exp>>,
 }
 
 #[derive(Debug)]
@@ -107,7 +109,7 @@ pub struct Exp {
 pub enum ExpCore {
     Binary(Exp, BinaryOp, Exp),
     Single(i32),
-    Ident(String),
+    Ident(LVal),
     Call(String, Vec<Exp>),
 }
 
@@ -120,13 +122,19 @@ impl Exp {
         Exp { core: Box::new(ExpCore::Single(num)), }
     }
 
-    pub fn ident(id: String) -> Exp {
+    pub fn ident(id: LVal) -> Exp {
         Exp { core: Box::new(ExpCore::Ident(id)), }
     }
 
     pub fn call(id: String, func_real_list: Vec<Exp>) -> Exp {
         Exp { core: Box::new(ExpCore::Call(id, func_real_list)), }
     }
+}
+
+#[derive(Debug)]
+pub struct LVal {
+    pub id: String,
+    pub is_array: Option<Exp>,
 }
 
 /*

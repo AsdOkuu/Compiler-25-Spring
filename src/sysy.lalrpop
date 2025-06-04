@@ -109,12 +109,18 @@ VarDecl: VarDecl = {
     <def_head: DefHead> <var_def_list: VarDefList> ";" => {
         let (btype, id) = def_head;
         let (op_exp, mut list) = var_def_list;
-        list.insert(0, VarDef { id: id, init_val: op_exp });
+        list.insert(0, VarDef { id: id, is_array: None, init_val: op_exp });
+        VarDecl { btype: btype, var_def_list: list }
+    },
+    <def_head: DefHead> <array_tail: ArrayTail> <var_def_list: VarDefList> ";" => {
+        let (btype, id) = def_head;
+        let (op_exp, mut list) = var_def_list;
+        list.insert(0, VarDef { id: id, is_array: Some(array_tail), init_val: op_exp });
         VarDecl { btype: btype, var_def_list: list }
     }
 }
 
-VarDefList: (Option<Exp>, Vec<VarDef>) = {
+VarDefList: (Option<Result<Exp, Vec<Exp>>>, Vec<VarDef>) = {
     => (None, vec![<>]),
     "=" + <init_val: InitVal> => (Some(init_val), vec![]),
     <var_def_list: VarDefList> "," <var_def: VarDef> => {
@@ -126,16 +132,35 @@ VarDefList: (Option<Exp>, Vec<VarDef>) = {
 
 VarDef: VarDef = {
     <id: Ident> "=" <init_val: InitVal> => {
-        VarDef { id: id, init_val: Some(init_val) }
+        VarDef { id: id, is_array: None, init_val: Some(init_val) }
     },
     <id: Ident> => {
-        VarDef { id: id, init_val: None }
+        VarDef { id: id, is_array: None, init_val: None }
+    },
+    <id: Ident> <array_tail: ArrayTail> "=" <init_val: InitVal> => {
+        VarDef { id: id, is_array: Some(array_tail), init_val: Some(init_val) }
+    },
+    <id: Ident> <array_tail: ArrayTail> => {
+        VarDef { id: id, is_array: Some(array_tail), init_val: None }
     }
 }
 
 DefHead: (BType, String) = <btype: BType> <id: Ident> => (<>);
 
-InitVal: Exp = <exp: Exp> => <>;
+InitVal: Result<Exp, Vec<Exp>> = {
+    <exp: Exp> => Ok(<>),
+    "{" <array_list: ArrayInit> "}" => Err(<>),
+    "{" "}" => Err(vec![]),
+}
+
+ArrayInit: Vec<Exp> = {
+    <exp: Exp> => vec![exp],
+    <array_init: ArrayInit> "," <exp: Exp> => {
+        let mut list = array_init;
+        list.push(exp);
+        list
+    }
+}
 
 ConstDecl: ConstDecl = {
     "const" <btype: BType> <const_def_list: ConstDefList> ";" => {
@@ -155,12 +180,30 @@ ConstDefList: Vec<ConstDef> = {
 }
 
 ConstDef: ConstDef = {
-    <id: Ident> "=" <const_init_val: Exp> => {
-        ConstDef { <> }
+    <id: Ident> "=" <const_init_val: ConstInitVal> => {
+        ConstDef { id: id, is_array: None, const_init_val: const_init_val }
+    },
+    <id: Ident> <array_tail: ArrayTail> "=" <const_init_val: ConstInitVal> => {
+        ConstDef { id: id, is_array: Some(array_tail), const_init_val: const_init_val }
     }
 }
 
-ConstInitVal: Exp = <const_exp: ConstExp> => <>;
+ArrayTail: Exp = "[" <exp: ConstExp> "]" => <>;
+
+ConstInitVal: Result<Exp, Vec<Exp>> = {
+    <const_exp: ConstExp> => Ok(<>),
+    "{" <array_list: ConstArrayInit> "}" => Err(<>),
+    "{" "}" => Err(vec![]),
+}
+
+ConstArrayInit: Vec<Exp> = {
+    <const_exp: ConstExp> => vec![const_exp],
+    <array_init: ConstArrayInit> "," <const_exp: ConstExp> => {
+        let mut list = array_init;
+        list.push(const_exp);
+        list
+    }
+}
 
 ConstExp: Exp = <exp: Exp> => <>;
 
@@ -172,7 +215,10 @@ PrimaryExp: Exp = {
     <num: Number> => Exp::single(<>),
 }
 
-LVal: String = <id: Ident> => <>;
+LVal: LVal = {
+    <id: Ident> => LVal { id: id, is_array: None },
+    <id: Ident> <array_tail: ArrayTail> => LVal {id: id, is_array: Some(array_tail)}
+}
 
 Number: i32 = <num: IntConst> => <>;
 
