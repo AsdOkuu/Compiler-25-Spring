@@ -94,7 +94,9 @@ fn load_value(reg: String, value: Value, func_data: &FunctionData, sp_delta: usi
                 "mv ".to_string() + &reg + ", a" + &i.to_string() + "\n"
             }else {
                 let offset = sp_delta + (i - 8) * 4;
-                "lw ".to_string() + &reg + ", " + &offset.to_string() + "(sp)\n"
+                "li t4, ".to_string() + &offset.to_string() + "\n" + 
+                "add t4, sp, t4\n" +
+                &"lw ".to_string() + &reg + ", 0(t4)\n"
             }
         },
         _ => {
@@ -211,9 +213,9 @@ fn bb_gen_riscv32(bb: BasicBlock, program: &Program, func_data: &FunctionData, s
                     }
                 }
                 // Store t0 - t6 (actually only t3 need)
-                text += "sw t3, ";
-                text += &(sp_delta - 4).to_string();
-                text += "(sp)\n";
+                text += &("li t4, ".to_string() + &(sp_delta - 4).to_string() + "\n");
+                text += "add t4, sp, t4\n";
+                text += "sw t3, 0(t4)\n";
                 for i in 0..=6 {
                     let offset = -(i + 2) * 4;
                     text += "sw t";
@@ -225,9 +227,9 @@ fn bb_gen_riscv32(bb: BasicBlock, program: &Program, func_data: &FunctionData, s
                 text += &program.func(call.callee()).name()[1..];
                 text += "\n";
                 // Recover t0 - t6
-                text += "lw t3, ";
-                text += &(sp_delta - 4).to_string();
-                text += "(sp)\n";
+                text += &("li t4, ".to_string() + &(sp_delta - 4).to_string() + "\n");
+                text += "add t4, sp, t4\n";
+                text += "lw t3, 0(t4)\n";
                 for i in 0..=6 {
                     let offset = -(i + 2) * 4;
                     text += "lw t";
@@ -311,8 +313,10 @@ pub fn gen_riscv32(ast: ast::Program) -> String {
             }
         }
         println!("sp_delta: {}", sp_delta);
-        sp_delta = (sp_delta + 4 + 15) / 16 * 16;
-        call_delta = (call_delta + 15) / 16 * 16;
+        // sp_delta = (sp_delta + 4 + 15) / 16 * 16;
+        // call_delta = (call_delta + 15) / 16 * 16;
+        sp_delta = 1536;
+        call_delta = 512;
         let delta = sp_delta + call_delta + 64;
         text += &("li t3, -".to_string() + &sp_delta.to_string() + "\n");
         text += "add t3, sp, t3\n";
