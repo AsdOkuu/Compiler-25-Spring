@@ -78,8 +78,14 @@ pub struct VarDecl {
 #[derive(Debug)]
 pub struct VarDef {
     pub id: String,
-    pub is_array: Option<Exp>,
-    pub init_val: Option<Result<Exp, Vec<Exp>>>,
+    pub is_array: Vec<Exp>,
+    pub init_val: Option<InitVal>,
+}
+
+#[derive(Debug)]
+pub enum InitVal {
+    Exp(Exp),
+    List(Vec<Box<InitVal>>),
 }
 
 #[derive(Debug)]
@@ -96,8 +102,8 @@ pub enum BType {
 #[derive(Debug)]
 pub struct ConstDef {
     pub id: String,
-    pub is_array: Option<Exp>,
-    pub const_init_val: Result<Exp, Vec<Exp>>,
+    pub is_array: Vec<Exp>,
+    pub const_init_val: InitVal,
 }
 
 #[derive(Debug)]
@@ -134,7 +140,7 @@ impl Exp {
 #[derive(Debug)]
 pub struct LVal {
     pub id: String,
-    pub is_array: Option<Exp>,
+    pub is_array: Vec<Exp>,
 }
 
 /*
