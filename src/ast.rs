@@ -20,7 +20,7 @@ pub enum FuncType {
 }
 
 #[derive(Debug)]
-pub struct FuncParam(pub String);
+pub struct FuncParam(pub String, pub Vec<Exp>);
 
 #[derive(Debug)]
 pub struct Block {
@@ -106,12 +106,12 @@ pub struct ConstDef {
     pub const_init_val: InitVal,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Exp {
     pub core: Box<ExpCore>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ExpCore {
     Binary(Exp, BinaryOp, Exp),
     Single(i32),
@@ -137,7 +137,7 @@ impl Exp {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LVal {
     pub id: String,
     pub is_array: Vec<Exp>,

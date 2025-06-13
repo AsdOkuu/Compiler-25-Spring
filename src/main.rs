@@ -34,7 +34,7 @@ fn main() {
     // Use lalrpop generated parser
     let ast = sysy::ProgramParser::new().parse(&input).unwrap();
     // Output log
-    println!("{:#?}", ast);
+    // println!("{:#?}", ast);
 
     // Select mode
     let text = match mode.as_str() {

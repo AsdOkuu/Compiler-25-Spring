@@ -54,7 +54,16 @@ FuncParamList: Vec<FuncParam> = {
     }
 }
 
-FuncParam: FuncParam = <btype: BType> <ident: Ident> => FuncParam(ident);
+FuncParam: FuncParam = <btype: BType> <ident: Ident> <fpt: FuncParamTail> => FuncParam(ident, fpt);
+
+FuncParamTail: Vec<Exp> = {
+    => vec![],
+    "[" "]" <atl: ArrayTailList> => {
+        let mut list = atl;
+        list.insert(0, Exp::single(1));
+        list
+    }
+}
 
 Block: Block = "{" <block_item_list: BlockItemList> "}" => Block { <> };
 

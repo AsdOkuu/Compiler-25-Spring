@@ -8,7 +8,7 @@ use koopa::back::KoopaGenerator;
 use crate::ast;
 
 struct SymbolTable {
-    table: HashMap<String, Value>,
+    table: HashMap<String, (Value, usize, bool)>,
     old: Option<Rc<SymbolTable>>,
     const_table: HashMap<String, i32>
 }
@@ -18,9 +18,9 @@ impl SymbolTable {
         SymbolTable {table: HashMap::new(), old: None, const_table: HashMap::new()}
     }
 
-    fn find(&self, s: &String) -> Option<Value> {
+    fn find(&self, s: &String) -> Option<(Value, usize, bool)> {
         match self.table.get(s) {
-            Some(value) => Some(*value),
+            Some(res) => Some(*res),
             None => match &self.old {
                 Some(old_table) => old_table.find(s),
                 None => None,
@@ -110,13 +110,38 @@ impl ast::Exp {
                 (func_data.dfg_mut().new_value().integer(i), bb)
             },
             ast::ExpCore::Ident(lval) => {
-                let v = symbol_table.find(&lval.id).unwrap();
+                let (v, dim, is_ptr) = symbol_table.find(&lval.id).unwrap();
 
-                let (ptr, new_bb) = get_array_ptr(v, lval.is_array, bb, func_data, Rc::clone(&symbol_table), func_table);
+                let is_partial = lval.is_array.len() < dim;
+                let to_get = is_ptr && lval.is_array.len() == 0;
+
+                println!("{}", is_ptr);
+                // func_data.dfg_mut().values().get(&v).unwrap();
+                let (ptr, new_bb) = get_array_ptr(v, is_ptr, lval.is_array, bb, func_data, Rc::clone(&symbol_table), func_table);
                 bb = new_bb;
+
+                // func_data.dfg_mut().values().get(&ptr).unwrap();
+                // if let TypeKind::Pointer(ty) = func_data.dfg_mut().value(ptr).ty().kind() {
+                //     if let TypeKind::Array(_, _) = ty.kind() {
+                //         return (ptr, bb);
+                //     }
+                // }
+
+                if is_partial {
+                    let zero = func_data.dfg_mut().new_value().integer(0);
+                    let value = if to_get {
+                        func_data.dfg_mut().new_value().get_ptr(ptr, zero)
+                    }else {
+                        func_data.dfg_mut().new_value().get_elem_ptr(ptr, zero)
+                    };
+                    func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(value).unwrap();
+                    return (value, bb);
+                }
+                
 
                 let load = func_data.dfg_mut().new_value().load(ptr);
                 func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(load).unwrap();
+
                 (load, bb)
             },
             ast::ExpCore::Call(id, param_list) => {
@@ -125,6 +150,14 @@ impl ast::Exp {
                 for exp in param_list.into_iter() {
                     let (value, new_bb) = exp.dump(bb, func_data, Rc::clone(&symbol_table), func_table);
                     bb = new_bb;
+
+                    // func_data.dfg_mut().values().get(&value).unwrap();
+                    // if let TypeKind::Pointer(_) = func_data.dfg_mut().value(value).ty().kind() {
+                    //     let zero = func_data.dfg_mut().new_value().integer(0);
+                    //     value = func_data.dfg_mut().new_value().get_elem_ptr(value, zero);
+                    //     func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(value).unwrap();
+                    // }
+                    
                     params.push(value);
                 }
 
@@ -222,11 +255,21 @@ struct WhileInfo {
     end_bb: BasicBlock,
 }
 
-fn get_array_ptr(mut value: Value, list: Vec<ast::Exp>, mut bb: BasicBlock, func_data: &mut FunctionData, symbol_table: Rc<SymbolTable>, func_table: &HashMap<String, Function>) -> (Value, BasicBlock) {
+fn get_array_ptr(mut value: Value, mut is_ptr: bool, list: Vec<ast::Exp>, mut bb: BasicBlock, func_data: &mut FunctionData, symbol_table: Rc<SymbolTable>, func_table: &HashMap<String, Function>) -> (Value, BasicBlock) {
+    if is_ptr {
+        value = func_data.dfg_mut().new_value().load(value);
+        func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(value).unwrap();
+    }
     for exp in list {
         let (index, new_bb) = exp.dump(bb, func_data, Rc::clone(&symbol_table), &func_table);
         bb = new_bb;
-        value = func_data.dfg_mut().new_value().get_elem_ptr(value, index);
+
+        if is_ptr {
+            value = func_data.dfg_mut().new_value().get_ptr(value, index);
+            is_ptr = false;
+        }else {
+            value = func_data.dfg_mut().new_value().get_elem_ptr(value, index);
+        }
         func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(value).unwrap();
     }
     (value, bb)
@@ -240,10 +283,11 @@ impl ast::Stmt {
                 bb = new_bb;
             }
             ast::Stmt::Assign(lval, exp) => {
-                let dest = symbol_table.find(&lval.id).unwrap();
+                let (dest, _, is_ptr) = symbol_table.find(&lval.id).unwrap();
                 let (exp_val, new_bb) = exp.dump(bb, func_data, Rc::clone(&symbol_table), func_table);
                 bb = new_bb;
-                let (ptr, new_bb) = get_array_ptr(dest, lval.is_array, bb, func_data, Rc::clone(&symbol_table), func_table);
+                // func_data.dfg_mut().values().get(&dest).unwrap();
+                let (ptr, new_bb) = get_array_ptr(dest, is_ptr, lval.is_array, bb, func_data, Rc::clone(&symbol_table), func_table);
                 bb = new_bb;
 
                 let store = func_data.dfg_mut().new_value().store(exp_val, ptr);
@@ -380,6 +424,22 @@ fn build_value_local(vree: &Vree, ptr: Value, func_data: &mut FunctionData, bb: 
     }
 }
 
+fn adj_tree(arr: &Tree, func_data: &mut FunctionData) -> Vree {
+    match arr {
+        Tree::Leaf(i) => {
+            let v = func_data.dfg_mut().new_value().integer(*i);
+            Vree::Leaf(Some(v))
+        },
+        Tree::Sub(list) => {
+            let mut vlist = vec![];
+            for t in list {
+                vlist.push(adj_tree(t, func_data));
+            }
+            Vree::Sub(vlist)
+        }
+    }
+}
+
 impl ast::Block {
     fn dump(self, mut bb: BasicBlock, func_data: &mut FunctionData, mut symbol_table: Rc<SymbolTable>, while_info: Option<WhileInfo>, func_table: &HashMap<String, Function>) -> BasicBlock {
 
@@ -395,18 +455,25 @@ impl ast::Block {
                                     index.push(i);
                                 }
 
+                                let len = index.len();
+
                                 let mut ty = Type::get_i32();
                                 for i in index.iter().rev() {
                                     ty = Type::get_array(ty, *i);
                                 }
 
-                                let (vree, new_bb) = const_def.const_init_val.dump_local(index, bb, Rc::clone(&symbol_table), func_data, func_table);
-                                bb = new_bb;
+                                let arr = const_def.const_init_val.dump_global(index, Rc::clone(&symbol_table));
 
                                 let alloc = func_data.dfg_mut().new_value().alloc(ty);
                                 func_data.layout_mut().bb_mut(bb).insts_mut().push_key_back(alloc).unwrap();
+
+                                let vree = adj_tree(&arr, func_data);
                                 build_value_local(&vree, alloc, func_data, bb);
-                                Rc::get_mut(&mut symbol_table).unwrap().table.insert(const_def.id.clone(), alloc);
+                                Rc::get_mut(&mut symbol_table).unwrap().table.insert(const_def.id.clone(), (alloc, len, false));
+
+                                if let Tree::Leaf(i) = arr {
+                                    Rc::get_mut(&mut symbol_table).unwrap().const_table.insert(const_def.id.clone(), i);
+                                }
                             }
                         }
                         ast::Decl::Var(var_decl) => {
@@ -416,6 +483,8 @@ impl ast::Block {
                                     let i = exp.dump_const(Rc::clone(&symbol_table)) as usize;
                                     index.push(i);
                                 }
+
+                                let len = index.len();
 
                                 let mut ty = Type::get_i32();
                                 for i in index.iter().rev() {
@@ -431,7 +500,7 @@ impl ast::Block {
 
                                     build_value_local(&vree, alloc, func_data, bb);
                                 }
-                                Rc::get_mut(&mut symbol_table).unwrap().table.insert(var_def.id.clone(), alloc);
+                                Rc::get_mut(&mut symbol_table).unwrap().table.insert(var_def.id.clone(), (alloc, len, false));
                             }
                         }
                     }
@@ -453,12 +522,25 @@ impl ast::FuncDef {
         func_data.layout_mut().bbs_mut().push_key_back(entry).unwrap();
 
         let params = func_data.params().to_vec();
-        for (func_param, value) in zip(self.func_param_list, params) {
-            let alloc = func_data.dfg_mut().new_value().alloc(Type::get_i32());
+        let param_kind = if let TypeKind::Function(p, _) = func_data.ty().kind() {
+            p.clone()
+        }else {
+            panic!()
+        };
+        for (func_param, (value, ty)) in zip(self.func_param_list, zip(params, param_kind)) {
+            let alloc = func_data.dfg_mut().new_value().alloc(ty);
             func_data.layout_mut().bb_mut(entry).insts_mut().push_key_back(alloc).unwrap();
             let assign = func_data.dfg_mut().new_value().store(value, alloc);
             func_data.layout_mut().bb_mut(entry).insts_mut().push_key_back(assign).unwrap();
-            Rc::get_mut(&mut symbol_table).unwrap().table.insert(func_param.0, alloc);
+
+            let len = func_param.1.len();
+            if len == 0 {
+                println!("{}", 1);
+                Rc::get_mut(&mut symbol_table).unwrap().table.insert(func_param.0, (alloc, 0, false));
+            }else {
+                println!("{}", 2);
+                Rc::get_mut(&mut symbol_table).unwrap().table.insert(func_param.0, (alloc, len, true));
+            }
         }
 
         let last_bb = self.block.dump(entry, func_data, symbol_table, None, func_table);
@@ -619,7 +701,8 @@ impl ast::InitVal {
                 }
                 if count < s {
                     for _ in 0..s-count {
-                        arr_set[0].push(Vree::Leaf(None));
+                        let zero = func_data.dfg_mut().new_value().integer(0);
+                        arr_set[0].push(Vree::Leaf(Some(zero)));
                     }
                 }
                 // Union
@@ -718,10 +801,26 @@ impl ast::Program {
 
         for def in self.list {
             match def {
-                Ok(func_def) => {
+                Ok(mut func_def) => {
                     let mut param_ty = Vec::new();
-                    for param in func_def.func_param_list.iter() {
-                        param_ty.push((Some("@".to_owned() + &param.0), Type::get_i32()));
+                    let param_list = func_def.func_param_list;
+                    func_def.func_param_list = vec![];
+                    for param in param_list {
+                        let fake_exp_list = vec![ast::Exp::single(0); param.1.len()];
+                        func_def.func_param_list.push(ast::FuncParam(param.0, fake_exp_list));
+                        // param_ty.push((Some("@".to_owned() + &param.0), Type::get_i32()));
+                        let mut ty = Type::get_i32();
+                        let mut list = param.1;
+                        if list.len() > 0 {
+                            list.reverse();
+                            list.pop().unwrap();
+                            for exp in list {
+                                let i = exp.dump_const(Rc::clone(&symbol_table));
+                                ty = Type::get_array(ty, i as usize);
+                            }
+                            ty = Type::get_pointer(ty);
+                        }
+                        param_ty.push((None, ty));
                     }
                     let ret_ty = match func_def.func_type {
                         ast::FuncType::Int => Type::get_i32(),
@@ -743,6 +842,8 @@ impl ast::Program {
                                     index.push(i);
                                 }
 
+                                let len = index.len();
+
                                 let arr = const_def.const_init_val.dump_global(index, Rc::clone(&symbol_table));
 
                                 if let Tree::Leaf(i) = arr {
@@ -751,7 +852,7 @@ impl ast::Program {
 
                                 let value = build_value(arr, &mut program);
                                 let alloc = program.new_value().global_alloc(value);
-                                Rc::get_mut(&mut symbol_table).unwrap().table.insert(const_def.id.clone(), alloc);
+                                Rc::get_mut(&mut symbol_table).unwrap().table.insert(const_def.id.clone(), (alloc, len, false));
                             }
                         }
                         ast::Decl::Var(var_decl) => {
@@ -761,6 +862,8 @@ impl ast::Program {
                                     let i = exp.dump_const(Rc::clone(&symbol_table)) as usize;
                                     index.push(i);
                                 }
+
+                                let len = index.len();
 
                                 let arr = match var_def.init_val {
                                     Some(init_val) => init_val.dump_global(index, Rc::clone(&symbol_table)),
@@ -781,7 +884,7 @@ impl ast::Program {
 
                                 let value = build_value(arr, &mut program);
                                 let alloc = program.new_value().global_alloc(value);
-                                Rc::get_mut(&mut symbol_table).unwrap().table.insert(var_def.id.clone(), alloc);
+                                Rc::get_mut(&mut symbol_table).unwrap().table.insert(var_def.id.clone(), (alloc, len, false));
                             }
                         }
                     }
