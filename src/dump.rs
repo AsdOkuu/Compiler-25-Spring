@@ -675,7 +675,7 @@ impl ast::InitVal {
                             bb = new_bb;
                         },
                         ast::InitVal::List(_) => {
-                            let mut dim = 1;
+                            let mut dim = size.len() - 1;
                             for i in 0..arr_set.len() {
                                 if !arr_set[i].is_empty() {
                                     dim = i;
@@ -718,7 +718,9 @@ impl ast::InitVal {
         match self {
             ast::InitVal::Exp(exp) => {
                 // ArrayD::from_elem(vec![1], exp.dump_const(Rc::clone(&symbol_table)))
-                Tree::Leaf(exp.dump_const(Rc::clone(&symbol_table)))
+                let i = exp.dump_const(Rc::clone(&symbol_table));
+                println!("= {}", i);
+                Tree::Leaf(i)
             },
             ast::InitVal::List(list) => {
                 let mut arr_set = vec![vec![]; size.len() + 1];
@@ -732,14 +734,15 @@ impl ast::InitVal {
                             arr_set[0].push(init_val.dump_global(vec![], Rc::clone(&symbol_table)));
                         },
                         ast::InitVal::List(_) => {
-                            let mut dim = 1;
+                            let mut dim = size.len() - 1;
+                            println!("??{}", dim);
                             for i in 0..arr_set.len() {
                                 if !arr_set[i].is_empty() {
                                     dim = i;
                                     break;
                                 }
                             }
-                            // println!("?{}", dim);
+                            println!("?{}", dim);
                             let start = size.len() - dim;
                             let back = size[start..].to_vec();
                             let arr = init_val.dump_global(back, Rc::clone(&symbol_table));
@@ -756,6 +759,7 @@ impl ast::InitVal {
                     }
                     count += s * arr_set[i].len();
                 }
+                println!("size: {}, count: {}, s: {}", size.len(), count, s);
                 if count < s {
                     for _ in 0..s-count {
                         arr_set[0].push(Tree::Leaf(0));
@@ -864,6 +868,8 @@ impl ast::Program {
                                 }
 
                                 let len = index.len();
+
+                                println!("len: {}", len);
 
                                 let arr = match var_def.init_val {
                                     Some(init_val) => init_val.dump_global(index, Rc::clone(&symbol_table)),
