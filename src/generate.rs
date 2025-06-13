@@ -83,8 +83,15 @@ fn get_offset(offset: usize, text: &mut String) -> String {
     "0(t4)".to_string()
 }
 
-fn load_value(reg: String, value: Value, func_data: &FunctionData, sp_delta: usize, pos: &HashMap<Value, usize>) -> String {
-    match func_data.dfg().value(value).kind() {
+fn load_value(reg: String, value: Value, func_data: &FunctionData, sp_delta: usize, pos: &HashMap<Value, usize>, _program: &Program) -> String {
+    let in_func = func_data.dfg().values().get(&value).is_some();
+    let kind = if in_func {
+        func_data.dfg().value(value).kind().clone()
+    }else {
+        // program.borrow_value(value).kind().clone()
+        panic!()
+    };
+    match kind {
         ValueKind::Integer(int) => {
             "li ".to_string() + &reg + ", " + &int.value().to_string() + "\n"
         },
@@ -101,7 +108,6 @@ fn load_value(reg: String, value: Value, func_data: &FunctionData, sp_delta: usi
         },
         _ => {
             let mut text = String::new();
-            println!("{:?}", func_data.dfg().value(value).kind());
             let offset = get_offset(pos[&value], &mut text);
             text + "lw " + &reg + ", " + &offset + "\n"
         }
@@ -132,7 +138,7 @@ fn bb_gen_riscv32(bb: BasicBlock, program: &Program, func_data: &FunctionData, s
         match value_data.kind() {
             ValueKind::Return(ret) => {
                 if let Some(ret_value) = ret.value() {
-                    text += &load_value("a0".to_string(), ret_value, func_data, sp_delta, pos);
+                    text += &load_value("a0".to_string(), ret_value, func_data, sp_delta, pos, program);
                 }
                 text += "lw ra, -4(t3)\n";
                 text += &("li t0, ".to_string() + &sp_delta.to_string() + "\n");
@@ -143,21 +149,30 @@ fn bb_gen_riscv32(bb: BasicBlock, program: &Program, func_data: &FunctionData, s
                 // do nothing
             },
             ValueKind::Store(store) => {
-                text += &load_value("t0".to_string(), store.value(), func_data, sp_delta, pos);
-                if let Some(&offset) = pos.get(&store.dest()) {
+                let dest = store.dest();
+                text += &load_value("t0".to_string(), store.value(), func_data, sp_delta, pos, program);
+                if let Some(&offset) = pos.get(&dest) {
+                    let get_ptr = matches!(func_data.dfg().value(dest).kind(), ValueKind::GetElemPtr(_)) || matches!(func_data.dfg().value(dest).kind(), ValueKind::GetPtr(_));
                     let offset = get_offset(offset, &mut text);
+                    if get_ptr {
+                        text += "lw t4, 0(t4)\n";
+                    }
                     text += &("sw t0, ".to_string() + &offset + "\n");
                 }else {
                     // Global
-                    text += &("la t5, gvar".to_string() + &global_var[&store.dest()].to_string() + "\n");
+                    text += &("la t5, gvar".to_string() + &global_var[&dest].to_string() + "\n");
                     text += "sw t0, 0(t5)\n";
                 }
             },
             ValueKind::Load(load) => {
                 let src = load.src();
                 if let Some(&offset) = pos.get(&src) {
+                    let get_ptr = matches!(func_data.dfg().value(src).kind(), ValueKind::GetElemPtr(_)) || matches!(func_data.dfg().value(src).kind(), ValueKind::GetPtr(_));
                     let offset = get_offset(offset, &mut text);
                     text += &("lw t0, ".to_string() + &offset + "\n");
+                    if get_ptr {
+                        text += "lw t0, 0(t0)\n";
+                    }
                 }else {
                     // panic!("Load not found");
                     // Global
@@ -168,8 +183,8 @@ fn bb_gen_riscv32(bb: BasicBlock, program: &Program, func_data: &FunctionData, s
                 text += &("sw t0, ".to_string() + &offset + "\n");
             },
             ValueKind::Binary(bin) => {
-                text += &load_value("t0".to_string(), bin.lhs(), func_data, sp_delta, pos);
-                text += &load_value("t1".to_string(), bin.rhs(), func_data, sp_delta, pos);
+                text += &load_value("t0".to_string(), bin.lhs(), func_data, sp_delta, pos, program);
+                text += &load_value("t1".to_string(), bin.rhs(), func_data, sp_delta, pos, program);
                 text += &parse_binary(bin.op());
                 let offset = get_offset(pos[&inst], &mut text);
                 text += &("sw t2, ".to_string() + &offset + "\n");
@@ -181,7 +196,7 @@ fn bb_gen_riscv32(bb: BasicBlock, program: &Program, func_data: &FunctionData, s
                 text += &new_text;
             },
             ValueKind::Branch(branch) => {
-                text += &load_value("t0".to_string(), branch.cond(), func_data, sp_delta, pos);
+                text += &load_value("t0".to_string(), branch.cond(), func_data, sp_delta, pos, program);
 
                 let true_bb = branch.true_bb();
                 let false_bb = branch.false_bb();
@@ -200,14 +215,14 @@ fn bb_gen_riscv32(bb: BasicBlock, program: &Program, func_data: &FunctionData, s
                     reg_len = 8;
                 }
                 for i in 0..reg_len {
-                    text += &load_value("a".to_string() + &i.to_string(), call.args()[i], func_data, sp_delta, pos);
+                    text += &load_value("a".to_string() + &i.to_string(), call.args()[i], func_data, sp_delta, pos, program);
                 }
                 // Store args above [sp]
                 let len = call.args().len();
                 if len > 8 {
                     for i in 8..len {
                         let offset = (i - 8) * 4;
-                        text += &load_value("t0".to_string(), call.args()[i], func_data, sp_delta, pos);
+                        text += &load_value("t0".to_string(), call.args()[i], func_data, sp_delta, pos, program);
                         text += "sw t0, ";
                         text += &(offset.to_string() + "(sp)\n");
                     }
@@ -244,6 +259,101 @@ fn bb_gen_riscv32(bb: BasicBlock, program: &Program, func_data: &FunctionData, s
                     text += "\n";
                 }
             }
+            ValueKind::GetElemPtr(gep) => {
+                // 1. Calc offset
+                let src = gep.src();
+                let in_func = func_data.dfg().values().get(&src).is_some();
+                let mut alloc = false;
+                let ty = if in_func {
+                    // println!("src_kind: {:?}", func_data.dfg().value(src).kind());
+                    if let ValueKind::Alloc(_) = func_data.dfg().value(src).kind() {
+                        alloc = true;
+                    }
+                    func_data.dfg().value(src).ty().clone()
+                }else {
+                    program.borrow_value(src).ty().clone()
+                };
+                let src_size = if let TypeKind::Pointer(ptr) = ty.kind() {
+                    if let TypeKind::Array(elem, _) = ptr.kind() {
+                        elem.size()
+                    }else {
+                        panic!()
+                    }
+                }else {
+                    panic!()
+                };
+                // Todo: bad calling dfg().value(...) in load_value
+                // println!("src_size: {}", src_size);
+                text += &load_value("t0".to_string(), gep.index(), func_data, sp_delta, pos, program);
+                text += "li t1, ";
+                text += &src_size.to_string();
+                text += "\n";
+                text += "mul t0, t0, t1\n";
+                // 2. Position array
+                // text += &load_value("t1".to_string(), gep.src(), func_data, sp_delta, pos, program);
+                if in_func {
+                    text += &("li t1, ".to_string() + &pos[&src].to_string() + "\n");
+                    text += "add t1, t3, t1\n";
+                    if !alloc {
+                        text += "lw t1, 0(t1)\n";
+                    }
+                }else {
+                    text += &("la t1, gvar".to_string() + &global_var[&src].to_string() + "\n");
+                }
+                // 3. Calc absolute addr
+                text += "add t1, t1, t0\n";
+                // 4. Save
+                let offset = get_offset(pos[&inst], &mut text);
+                text += "sw t1, ";
+                text += &offset;
+                text += "\n";
+            }
+            ValueKind::GetPtr(gp) => {
+                // 1. Calc offset
+                let src = gp.src();
+                let in_func = func_data.dfg().values().get(&src).is_some();
+                let mut alloc = false;
+                let ty = if in_func {
+                    println!("src_kind: {:?}", func_data.dfg().value(src).kind());
+                    if let ValueKind::Alloc(_) = func_data.dfg().value(src).kind() {
+                        alloc = true;
+                    }
+                    func_data.dfg().value(src).ty().clone()
+                }else {
+                    program.borrow_value(src).ty().clone()
+                };
+                println!("gp ty: {:#?}", ty);
+                let src_size = if let TypeKind::Pointer(ptr) = ty.kind() {
+                    ptr.size()
+                }else {
+                    panic!()
+                };
+                // Todo: bad calling dfg().value(...) in load_value
+                println!("src_size: {}", src_size);
+                text += &load_value("t0".to_string(), gp.index(), func_data, sp_delta, pos, program);
+                text += "li t1, ";
+                text += &src_size.to_string();
+                text += "\n";
+                text += "mul t0, t0, t1\n";
+                // 2. Position array
+                // text += &load_value("t1".to_string(), gep.src(), func_data, sp_delta, pos, program);
+                if in_func {
+                    text += &("li t1, ".to_string() + &pos[&src].to_string() + "\n");
+                    text += "add t1, t3, t1\n";
+                    if !alloc {
+                        text += "lw t1, 0(t1)\n";
+                    }
+                }else {
+                    text += &("la t1, gvar".to_string() + &global_var[&src].to_string() + "\n");
+                }
+                // 3. Calc absolute addr
+                text += "add t1, t1, t0\n";
+                // 4. Save
+                let offset = get_offset(pos[&inst], &mut text);
+                text += "sw t1, ";
+                text += &offset;
+                text += "\n";
+            }
             _ => {
                 panic!("Unknown inst value kind");
             }
@@ -252,12 +362,34 @@ fn bb_gen_riscv32(bb: BasicBlock, program: &Program, func_data: &FunctionData, s
     text
 }
 
+fn gen_global_alloc(value: Value, program: &Program, text: &mut String) {
+    match program.borrow_value(value).kind() {
+        ValueKind::GlobalAlloc(alloc) => {
+            gen_global_alloc(alloc.init(), program, text);
+        }
+        ValueKind::Integer(int) => {
+            *text += ".word ";
+            *text += &int.value().to_string();
+            *text += "\n";
+        }
+        ValueKind::Aggregate(agg) => {
+            for v in agg.elems() {
+                gen_global_alloc(*v, program, text);
+            }
+        }
+        _ => unreachable!()
+    }
+}
+
 /* Generate riscv32 code */
 pub fn gen_riscv32(ast: ast::Program) -> String {
     let mut text = String::new();
     let program = ast.dump();
+
+    Type::set_ptr_size(4);
     let mut global_count = 0;
     let mut global_var = HashMap::new();
+    // Global alloc
     for &inst in program.inst_layout() {
         global_var.insert(inst, global_count);
         text += ".data\n";
@@ -267,21 +399,10 @@ pub fn gen_riscv32(ast: ast::Program) -> String {
         text += "gvar";
         text += &global_count.to_string();
         text += ":\n";
-        if let ValueKind::GlobalAlloc(global) = program.borrow_value(inst).kind() {
-            match program.borrow_value(global.init()).kind() {
-                ValueKind::Integer(integer) => {
-                    text += ".word ";
-                    text += &integer.value().to_string();
-                    text += "\n";
-                }
-                ValueKind::ZeroInit(_) => {
-                    text += ".zero 4\n";
-                }
-                _  => unreachable!()
-            }
-        }
+        gen_global_alloc(inst, &program, &mut text);
         global_count += 1;
     }
+    // Function
     for &func in program.func_layout() {
         let func_data = program.func(func);
         if let None = func_data.layout().entry_bb() {
@@ -303,7 +424,14 @@ pub fn gen_riscv32(ast: ast::Program) -> String {
                 // Only visit alloc, load, binary
                 if !value_data.ty().is_unit() {
                     pos.insert(inst, sp_delta);
-                    sp_delta += 4;
+                    let ty = value_data.ty();
+                    if let TypeKind::Pointer(ptr) = ty.kind() {
+                        sp_delta += ptr.size();
+                        println!("ty: {:#?}", ptr);
+                        println!("{}", ptr.size());
+                    }else {
+                        sp_delta += ty.size();
+                    }
                 }else if let ValueKind::Call(call) = value_data.kind() {
                     let val = call.args().len() * 4;
                     if val > call_delta {
@@ -313,10 +441,10 @@ pub fn gen_riscv32(ast: ast::Program) -> String {
             }
         }
         println!("sp_delta: {}", sp_delta);
-        // sp_delta = (sp_delta + 4 + 15) / 16 * 16;
-        // call_delta = (call_delta + 15) / 16 * 16;
-        sp_delta = 1536;
-        call_delta = 512;
+        sp_delta = (sp_delta + 4 + 15) / 16 * 1024;
+        call_delta = (call_delta + 15) / 16 * 1024;
+        // sp_delta = 1536;
+        // call_delta = 512;
         let delta = sp_delta + call_delta + 64;
         text += &("li t3, -".to_string() + &sp_delta.to_string() + "\n");
         text += "add t3, sp, t3\n";
