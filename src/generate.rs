@@ -441,8 +441,8 @@ pub fn gen_riscv32(ast: ast::Program) -> String {
             }
         }
         println!("sp_delta: {}", sp_delta);
-        sp_delta = (sp_delta + 4 + 15) / 16 * 128;
-        call_delta = (call_delta + 15) / 16 * 128;
+        sp_delta = (sp_delta + 4 + 15) / 16 * 16;
+        call_delta = (call_delta + 15) / 16 * 16;
         // sp_delta = 1536;
         // call_delta = 512;
         let delta = sp_delta + call_delta + 128;
