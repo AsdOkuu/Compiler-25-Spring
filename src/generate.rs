@@ -424,13 +424,14 @@ pub fn gen_riscv32(ast: ast::Program) -> String {
                 // Only visit alloc, load, binary
                 if !value_data.ty().is_unit() {
                     pos.insert(inst, sp_delta);
-                    let ty = value_data.ty();
-                    if let TypeKind::Pointer(ptr) = ty.kind() {
-                        sp_delta += ptr.size();
-                        println!("ty: {:#?}", ptr);
-                        println!("{}", ptr.size());
+                    if let ValueKind::Alloc(_) = value_data.kind() {
+                        if let TypeKind::Pointer(ptr) = value_data.ty().kind() {
+                            sp_delta += ptr.size();
+                        }else {
+                            panic!();
+                        }
                     }else {
-                        sp_delta += ty.size();
+                        sp_delta += 4;
                     }
                 }else if let ValueKind::Call(call) = value_data.kind() {
                     let val = call.args().len() * 4;
