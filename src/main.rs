@@ -46,6 +46,10 @@ fn main() {
             // Riscv32 - output assemble code
             generate::gen_riscv32(ast)
         },
+        "-perf" => {
+            // Performance mode - output assemble with optimization
+            generate::gen_riscv32(ast)
+        }
         _ => unreachable!(),
     };
 
