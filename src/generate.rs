@@ -441,11 +441,11 @@ pub fn gen_riscv32(ast: ast::Program) -> String {
             }
         }
         println!("sp_delta: {}", sp_delta);
-        sp_delta = (sp_delta + 4 + 15) / 16 * 1024;
-        call_delta = (call_delta + 15) / 16 * 1024;
+        sp_delta = (sp_delta + 4 + 15) / 16 * 10240;
+        call_delta = (call_delta + 15) / 16 * 10240;
         // sp_delta = 1536;
         // call_delta = 512;
-        let delta = sp_delta + call_delta + 64;
+        let delta = sp_delta + call_delta + 1024;
         text += &("li t3, -".to_string() + &sp_delta.to_string() + "\n");
         text += "add t3, sp, t3\n";
         text += &("li t0, -".to_string() + &delta.to_string() + "\n");
